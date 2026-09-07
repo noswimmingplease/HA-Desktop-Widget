@@ -189,11 +189,17 @@ function getMainWindowVisualOptions({
   frostedGlass = false,
   transparencyOptions = {},
 } = {}) {
+  // Electron cannot expose a resizable native frame for transparent windows on
+  // Windows. Keeping the main window opaque is therefore required for Windows
+  // Snap, PowerToys FancyZones and native title-bar maximise/restore. Desktop
+  // pin windows do not use this helper and remain transparent.
+  const useNativeWindowsFrame = platform === 'win32';
+  const transparent = useNativeWindowsFrame ? false : !!transparencyOptions.transparent;
   const options = {
-    transparent: !!transparencyOptions.transparent,
+    transparent,
     backgroundColor:
-      transparencyOptions.backgroundColor ||
-      (transparencyOptions.transparent ? '#00000000' : '#28282d'),
+      (useNativeWindowsFrame ? '#28282d' : transparencyOptions.backgroundColor) ||
+      (transparent ? '#00000000' : '#28282d'),
   };
 
   if (platform === 'win32') {

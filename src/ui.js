@@ -3,11 +3,11 @@ import * as utils from './utils.js';
 import websocket from './websocket.js';
 import * as camera from './camera.js';
 import * as uiUtils from './ui-utils.js';
-import { formatDate, formatTime, t } from './i18n.js';
+import { formatDate, formatDateTime, formatTime, t } from './i18n.js';
 import { applyCloseButtonIcons, setIconContent } from './icons.js';
 import { normalizeWeatherCondition, renderWeatherIcon } from './weather-icons.js';
 import { normalizePrimaryCards, PRIMARY_CARD_NONE } from './primary-cards.js';
-import { buildSparklinePoints } from './sparklines.js';
+import { buildSparklinePoints, isSensorSparklineEligible } from './sparklines.js';
 import desktopPinSupport from './desktop-pin-support.cjs';
 import { DEV_CLIMATE_DEMO_ENTITY_ID, isClimateDemoOverlayConfig } from '@dev-climate-demo';
 import {
@@ -21,6 +21,14 @@ import {
   reorderQuickAccessView,
   setActiveQuickAccessView,
 } from './quick-access-tabs.js';
+import {
+  QUICK_ACCESS_PRESENTATION_ROOMS,
+  buildQuickAccessLayout,
+  calculateQuickAccessMasonryRowSpan,
+  getQuickAccessDeviceIdentity,
+  getQuickAccessLayoutEntityIds,
+  getQuickAccessPresentation,
+} from './quick-access-layout.js';
 import { getNextQuickAccessFocusIndex } from './quick-access-ui-helpers.js';
 import { getRendererHost } from '@hadw/renderer/host.js';
 import {
@@ -85,6 +93,23 @@ const QUICK_ACCESS_TILE_VALUE_SIZE_LABELS = [
   { value: 'normal', label: 'Normal' },
   { value: 'large', label: 'Large' },
   { value: 'extra-large', label: 'Extra Large' },
+];
+const QUICK_ACCESS_REDUNDANT_COUNT_UNIT_ALIASES = [
+  ['ad', 'ads'],
+  ['client', 'clients'],
+  ['connection', 'connections'],
+  ['device', 'devices'],
+  ['display', 'displays'],
+  ['domain', 'domains'],
+  ['entity', 'entities'],
+  ['event', 'events'],
+  ['item', 'items'],
+  ['message', 'messages'],
+  ['packet', 'packets'],
+  ['point', 'points'],
+  ['process', 'processes'],
+  ['query', 'queries'],
+  ['request', 'requests'],
 ];
 const TODO_ITEMS_CACHE_TTL_MS = 2 * 60 * 1000;
 const TODO_ITEMS_REFRESH_THROTTLE_MS = 30 * 1000;
@@ -534,13 +559,27 @@ function setQuickAccessConfig(nextConfig, options = {}) {
   return persistence;
 }
 
-function getActiveQuickAccessEntityIds() {
-  const config = ensureQuickAccessConfig();
-  const entityIds = getActiveQuickAccessTab(config)?.entityIds || [];
-  if (isClimateDemoOverlayConfig(config) && !entityIds.includes(DEV_CLIMATE_DEMO_ENTITY_ID)) {
-    return [DEV_CLIMATE_DEMO_ENTITY_ID, ...entityIds];
+function getQuickAccessRenderLayout(config = ensureQuickAccessConfig()) {
+  const layout = buildQuickAccessLayout(config, { reorganizing: isReorganizeMode });
+  if (!isClimateDemoOverlayConfig(config)) return layout;
+
+  const targetSectionIndex = Math.max(
+    0,
+    layout.sections.findIndex((section) => section.id === config.activeTabId)
+  );
+  if (!layout.sections[targetSectionIndex]) return layout;
+  if (layout.sections.some((section) => section.entityIds.includes(DEV_CLIMATE_DEMO_ENTITY_ID))) {
+    return layout;
   }
-  return entityIds;
+
+  return {
+    ...layout,
+    sections: layout.sections.map((section, index) =>
+      index === targetSectionIndex
+        ? { ...section, entityIds: [DEV_CLIMATE_DEMO_ENTITY_ID, ...section.entityIds] }
+        : section
+    ),
+  };
 }
 
 function isDevelopmentClimateOverlayEntity(entityId) {
@@ -572,13 +611,15 @@ function renderQuickAccessTabs(config = ensureQuickAccessConfig()) {
 
   const tabs = config.customTabs || [];
   const reorganizing = isReorganizeMode;
+  const showingRoomSections =
+    !reorganizing && getQuickAccessPresentation(config) === QUICK_ACCESS_PRESENTATION_ROOMS;
 
   tabBar.innerHTML = '';
   tabBar.classList.toggle('reorganize', reorganizing);
 
   // In normal mode, only surface tabs once there is more than one page.
   // In reorganize mode, always show the bar so pages can be created/renamed.
-  const shouldShow = reorganizing || tabs.length > 1;
+  const shouldShow = reorganizing || (!showingRoomSections && tabs.length > 1);
   tabBar.classList.toggle('hidden', !shouldShow);
   if (!shouldShow) return;
 
@@ -911,13 +952,54 @@ function handleQuickAccessGridKeydown(event) {
   if (!container || currentIndex < 0) return;
 
   event.preventDefault();
-  const nextIndex = getNextQuickAccessFocusIndex(
-    currentIndex,
-    visibleTiles.length,
-    event.key,
-    getQuickAccessGridColumnCount(container)
-  );
-  const nextTile = visibleTiles[nextIndex];
+  const roomGrid = tile.closest('.quick-access-room-grid');
+  let nextTile = null;
+
+  if (roomGrid && container.contains(roomGrid)) {
+    const roomGrids = getQuickAccessTileGrids(container);
+    const roomIndex = roomGrids.indexOf(roomGrid);
+    const roomTiles = Array.from(roomGrid.children).filter((child) =>
+      child.matches('.control-item[data-entity-id]')
+    );
+    const roomTileIndex = roomTiles.indexOf(tile);
+    const columnCount = getQuickAccessGridColumnCount(roomGrid);
+
+    if (event.key === 'Home') {
+      nextTile = roomTiles[0];
+    } else if (event.key === 'End') {
+      nextTile = roomTiles[roomTiles.length - 1];
+    } else if (event.key === 'ArrowUp') {
+      nextTile = roomTiles[Math.max(0, roomTileIndex - columnCount)];
+    } else if (event.key === 'ArrowDown') {
+      nextTile = roomTiles[Math.min(roomTiles.length - 1, roomTileIndex + columnCount)];
+    } else {
+      const columnIndex = roomTileIndex % columnCount;
+      const canMoveWithinRoom =
+        event.key === 'ArrowLeft'
+          ? columnIndex > 0
+          : columnIndex < columnCount - 1 && roomTileIndex + 1 < roomTiles.length;
+      if (canMoveWithinRoom) {
+        nextTile = roomTiles[roomTileIndex + (event.key === 'ArrowLeft' ? -1 : 1)];
+      } else {
+        const adjacentGrid = roomGrids[roomIndex + (event.key === 'ArrowLeft' ? -1 : 1)];
+        const adjacentTiles = adjacentGrid
+          ? Array.from(adjacentGrid.children).filter((child) =>
+              child.matches('.control-item[data-entity-id]')
+            )
+          : [];
+        nextTile = adjacentTiles[Math.min(roomTileIndex, adjacentTiles.length - 1)];
+      }
+    }
+  } else {
+    const nextIndex = getNextQuickAccessFocusIndex(
+      currentIndex,
+      visibleTiles.length,
+      event.key,
+      getQuickAccessGridColumnCount(container)
+    );
+    nextTile = visibleTiles[nextIndex];
+  }
+
   if (!nextTile) return;
 
   syncQuickAccessRovingTabIndex(nextTile);
@@ -1012,7 +1094,7 @@ function refreshVisibleTimerEntityFlag() {
 function refreshVisibleEntityCache() {
   try {
     const nextVisibleIds = new Set();
-    const favorites = getActiveQuickAccessEntityIds().slice(0, 12);
+    const favorites = getQuickAccessLayoutEntityIds(getQuickAccessRenderLayout());
     favorites.forEach((entityId) => {
       addVisibleEntityCandidate(nextVisibleIds, entityId);
     });
@@ -1193,11 +1275,14 @@ function toggleReorganizeMode() {
     // Clear any active long-press timers to prevent state inconsistency
     clearAllPressTimers();
 
+    const usesRoomPresentation =
+      getQuickAccessPresentation(state.CONFIG) === QUICK_ACCESS_PRESENTATION_ROOMS;
     isReorganizeMode = !isReorganizeMode;
     const container = document.getElementById('quick-controls');
     const btn = document.getElementById('reorganize-quick-controls-btn');
 
     if (isReorganizeMode) {
+      if (usesRoomPresentation) renderQuickControls();
       container.classList.add('reorganize-mode');
       if (btn) {
         setIconContent(btn, 'check', { size: 18 });
@@ -1247,6 +1332,7 @@ function toggleReorganizeMode() {
       }
       saveQuickAccessOrder();
       removeRemoveButtons();
+      if (usesRoomPresentation) renderQuickControls();
       removeEscapeKeyListener();
       window.electronAPI.setDesktopPinEditMode(false).catch((error) => {
         console.error('Failed to disable desktop pin edit mode:', error);
@@ -1926,7 +2012,7 @@ function getControlRenderSignature(entity) {
     entityId: entity.entity_id,
     domain,
     contentKind,
-    sensorHasUnit: !!sensorDisplay?.unit,
+    sensorHasUnit: !!sensorDisplay?.displayUnit,
     span: getTileSpan(entity),
     desktopPinned: !!state.CONFIG?.desktopPins?.[entity.entity_id],
     quickAccessValueSize: hasQuickAccessValueSize
@@ -2086,6 +2172,64 @@ function formatQuickAccessSensorNumber(value, precision) {
     .replace(/\.?0+$/, '');
 }
 
+function getNormalizedQuickAccessWords(value) {
+  return (
+    String(value ?? '')
+      .normalize('NFKC')
+      .toLowerCase()
+      .match(/[\p{L}\p{N}]+/gu) || []
+  );
+}
+
+function isQuickAccessSensorUnitRedundant(entity, unit) {
+  const unitWords = getNormalizedQuickAccessWords(unit);
+  if (unitWords.length !== 1) return false;
+
+  const aliases = QUICK_ACCESS_REDUNDANT_COUNT_UNIT_ALIASES.find((group) =>
+    group.includes(unitWords[0])
+  );
+  if (!aliases) return false;
+
+  const displayNameWords = new Set(
+    getNormalizedQuickAccessWords(utils.getEntityDisplayName(entity))
+  );
+  return aliases.some((alias) => displayNameWords.has(alias));
+}
+
+function getQuickAccessTimestampSensorDisplay(entity) {
+  if (entity?.attributes?.device_class !== 'timestamp') return null;
+
+  const rawState = typeof entity.state === 'string' ? entity.state.trim() : '';
+  if (!rawState || rawState === 'unknown' || rawState === 'unavailable') return null;
+
+  const timestamp = new Date(rawState);
+  if (Number.isNaN(timestamp.getTime())) return null;
+
+  const compactTimeOptions = {
+    hour: '2-digit',
+    minute: '2-digit',
+    ...getClockTimeOptions(),
+  };
+  const exactTimeOptions = {
+    ...compactTimeOptions,
+    second: '2-digit',
+  };
+
+  return {
+    text: formatDateTime(timestamp, {
+      day: 'numeric',
+      month: 'short',
+      ...compactTimeOptions,
+    }),
+    exactText: formatDateTime(timestamp, {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+      ...exactTimeOptions,
+    }),
+  };
+}
+
 function getQuickAccessSensorDisplayParts(entity) {
   if (!entity?.entity_id?.startsWith('sensor.') || !isFiniteNumericSensorState(entity)) {
     return null;
@@ -2097,11 +2241,13 @@ function getQuickAccessSensorDisplayParts(entity) {
     typeof entity.attributes?.unit_of_measurement === 'string'
       ? entity.attributes.unit_of_measurement.trim()
       : '';
+  const displayUnit = isQuickAccessSensorUnitRedundant(entity, unit) ? '' : unit;
   const formattedValue = formatQuickAccessSensorNumber(value, precision);
 
   return {
     value: formattedValue,
     unit,
+    displayUnit,
     text: unit ? `${formattedValue} ${unit}` : formattedValue,
   };
 }
@@ -2399,37 +2545,49 @@ function appendLiveSensorHistoryValue(entity) {
   entry.series = pruneSensorHistorySeries([...entry.series, { value, timestamp }]);
 }
 
-function createSensorSparklineSvg(series, { width, height, className }) {
+function updateSensorSparklineSvg(svg, series, { width, height, className }) {
   const values = Array.isArray(series) ? series.map((point) => point.value) : [];
   const points = buildSparklinePoints(values, width, height);
-  if (!points) return null;
+  if (!svg || !points) return false;
 
-  const svg = document.createElementNS(SENSOR_SPARKLINE_SVG_NS, 'svg');
   svg.setAttribute('class', className);
   svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
   svg.setAttribute('preserveAspectRatio', 'none');
   svg.setAttribute('aria-hidden', 'true');
   svg.setAttribute('focusable', 'false');
 
-  const polyline = document.createElementNS(SENSOR_SPARKLINE_SVG_NS, 'polyline');
+  let polyline = svg.querySelector('polyline');
+  if (!polyline) {
+    polyline = document.createElementNS(SENSOR_SPARKLINE_SVG_NS, 'polyline');
+    svg.appendChild(polyline);
+  }
   polyline.setAttribute('points', points);
   polyline.setAttribute('fill', 'none');
   polyline.setAttribute('stroke', 'currentColor');
   polyline.setAttribute('stroke-width', values.length === 1 ? '0' : '2');
   polyline.setAttribute('stroke-linecap', 'round');
   polyline.setAttribute('stroke-linejoin', 'round');
-  svg.appendChild(polyline);
-
   if (values.length === 1) {
     const [x, y] = points.split(',').map(Number);
-    const dot = document.createElementNS(SENSOR_SPARKLINE_SVG_NS, 'circle');
+    let dot = svg.querySelector('circle');
+    if (!dot) {
+      dot = document.createElementNS(SENSOR_SPARKLINE_SVG_NS, 'circle');
+      svg.appendChild(dot);
+    }
     dot.setAttribute('cx', String(x));
     dot.setAttribute('cy', String(y));
     dot.setAttribute('r', '2');
     dot.setAttribute('fill', 'currentColor');
-    svg.appendChild(dot);
+  } else {
+    svg.querySelector('circle')?.remove();
   }
 
+  return true;
+}
+
+function createSensorSparklineSvg(series, options) {
+  const svg = document.createElementNS(SENSOR_SPARKLINE_SVG_NS, 'svg');
+  if (!updateSensorSparklineSvg(svg, series, options)) return null;
   return svg;
 }
 
@@ -2438,14 +2596,32 @@ function renderSensorTileSparkline(tile, entityId, series) {
   const info = tile.querySelector('.control-info');
   if (!info) return;
 
-  info.querySelector('.control-sensor-sparkline')?.remove();
-  const svg = createSensorSparklineSvg(series, {
+  const existingSparkline = info.querySelector('.control-sensor-sparkline');
+  const liveEntity = state.STATES?.[entityId];
+  if (
+    !tile.classList.contains('sensor-chart-entity') ||
+    (liveEntity && !isSensorSparklineEligible(liveEntity))
+  ) {
+    tile.classList.remove('sensor-chart-entity');
+    existingSparkline?.remove();
+    return;
+  }
+
+  const sparklineOptions = {
     width: SENSOR_TILE_SPARKLINE_WIDTH,
     height: SENSOR_TILE_SPARKLINE_HEIGHT,
     className: 'control-sensor-sparkline-svg',
-  });
-  if (!svg) return;
+  };
+  const existingSvg = existingSparkline?.querySelector('.control-sensor-sparkline-svg');
+  if (existingSvg && updateSensorSparklineSvg(existingSvg, series, sparklineOptions)) return;
 
+  const svg = createSensorSparklineSvg(series, sparklineOptions);
+  if (!svg) {
+    existingSparkline?.remove();
+    return;
+  }
+
+  existingSparkline?.remove();
   const sparkline = document.createElement('div');
   sparkline.className = 'control-sensor-sparkline';
   sparkline.appendChild(svg);
@@ -2453,13 +2629,21 @@ function renderSensorTileSparkline(tile, entityId, series) {
 }
 
 function mountSensorTileSparkline(tile, entity) {
-  if (!tile || !entity?.entity_id || !isFiniteNumericSensorState(entity)) return;
+  if (!tile || !entity?.entity_id) return;
+  const eligible = isSensorSparklineEligible(entity);
+  tile.classList.toggle('sensor-chart-entity', eligible);
+  if (!eligible) {
+    tile.querySelector('.control-sensor-sparkline')?.remove();
+    return;
+  }
+
   const entry = sensorHistoryCache.get(entity.entity_id);
   if (entry?.series?.length) {
     renderSensorTileSparkline(tile, entity.entity_id, entry.series);
   }
 
   fetchSensorHistory(entity.entity_id).then((series) => {
+    if (!tile.classList.contains('sensor-chart-entity')) return;
     renderSensorTileSparkline(tile, entity.entity_id, series);
   });
 }
@@ -2940,6 +3124,23 @@ function applyComparisonGraphSpans(container) {
   });
 }
 
+function getQuickAccessTileGrids(container = document.getElementById('quick-controls')) {
+  if (!container) return [];
+  if (!container.classList.contains('quick-access-rooms')) return [container];
+
+  return Array.from(container.children)
+    .map((room) =>
+      Array.from(room.children).find((child) => child.classList.contains('quick-access-room-grid'))
+    )
+    .filter(Boolean);
+}
+
+function applyQuickAccessComparisonGraphSpans(
+  container = document.getElementById('quick-controls')
+) {
+  getQuickAccessTileGrids(container).forEach((grid) => applyComparisonGraphSpans(grid));
+}
+
 // Resizing the window changes how many columns fit, so the clamp has to be re-applied.
 let comparisonGraphResizeTimer = null;
 if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
@@ -2947,7 +3148,7 @@ if (typeof window !== 'undefined' && typeof window.addEventListener === 'functio
     if (comparisonGraphResizeTimer) clearTimeout(comparisonGraphResizeTimer);
     comparisonGraphResizeTimer = setTimeout(() => {
       comparisonGraphResizeTimer = null;
-      applyComparisonGraphSpans();
+      applyQuickAccessComparisonGraphSpans();
     }, 150);
   });
 }
@@ -3423,6 +3624,210 @@ function getQuickAccessTileOptions(entityId) {
 
 function getQuickAccessTileValueSize(entityId) {
   return normalizeQuickAccessTileValueSize(getQuickAccessTileOptions(entityId).valueSize);
+}
+
+/**
+ * Calculates a proportional down-fit for a numeric Quick Access readout.
+ *
+ * The configured value size is the preferred maximum. Values are never enlarged, but the value
+ * and unit may shrink together when their measured text is wider than the tile. A one-pixel inset
+ * avoids fractional-pixel clipping at the right edge.
+ *
+ * @param {Object} measurements
+ * @param {number} measurements.availableWidth
+ * @param {number} measurements.valueWidth
+ * @param {number} [measurements.unitWidth=0]
+ * @param {number} [measurements.gapWidth=0]
+ * @param {number} measurements.preferredValueFontSize
+ * @param {number} [measurements.preferredUnitFontSize=0]
+ * @returns {{ fitted: boolean, scale: number, valueFontSize: number, unitFontSize: number }}
+ */
+function computeQuickAccessSensorReadoutFit({
+  availableWidth,
+  valueWidth,
+  unitWidth = 0,
+  gapWidth = 0,
+  preferredValueFontSize,
+  preferredUnitFontSize = 0,
+}) {
+  const available = Number(availableWidth);
+  const value = Number(valueWidth);
+  const unit = Math.max(0, Number(unitWidth) || 0);
+  const gap = unit > 0 ? Math.max(0, Number(gapWidth) || 0) : 0;
+  const valueFontSize = Number(preferredValueFontSize);
+  const unitFontSize = Math.max(0, Number(preferredUnitFontSize) || 0);
+  const preferredTextWidth = value + unit;
+
+  if (
+    !Number.isFinite(available) ||
+    available <= 1 ||
+    !Number.isFinite(value) ||
+    value <= 0 ||
+    !Number.isFinite(valueFontSize) ||
+    valueFontSize <= 0 ||
+    preferredTextWidth <= 0
+  ) {
+    return {
+      fitted: false,
+      scale: 1,
+      valueFontSize: Number.isFinite(valueFontSize) ? valueFontSize : 0,
+      unitFontSize: Number.isFinite(unitFontSize) ? unitFontSize : 0,
+    };
+  }
+
+  const usableTextWidth = Math.max(0, available - gap - 1);
+  const scale = Math.min(1, usableTextWidth / preferredTextWidth);
+
+  return {
+    fitted: scale < 0.999,
+    scale,
+    valueFontSize: valueFontSize * scale,
+    unitFontSize: unitFontSize * scale,
+  };
+}
+
+function getQuickAccessSensorReadouts(root = document) {
+  if (!root) return [];
+  if (root.matches?.('.control-sensor-readout')) return [root];
+  return Array.from(root.querySelectorAll?.('.control-sensor-readout') || []);
+}
+
+function getMeasuredElementWidth(element) {
+  if (!element) return 0;
+  const scrollWidth = Number(element.scrollWidth) || 0;
+  const renderedWidth = Number(element.getBoundingClientRect?.().width) || 0;
+  return Math.max(scrollWidth, renderedWidth);
+}
+
+function resetQuickAccessSensorReadoutFit(readout) {
+  const valueElement = readout?.querySelector?.('.control-sensor-value');
+  const unitElement = readout?.querySelector?.('.control-sensor-unit');
+  if (!valueElement) return null;
+
+  valueElement.style.removeProperty('font-size');
+  unitElement?.style.removeProperty('font-size');
+  delete readout.dataset.valueFit;
+  delete readout.dataset.valueFitScale;
+  return { readout, valueElement, unitElement };
+}
+
+function measureQuickAccessSensorReadoutFit(elements) {
+  const { readout, valueElement, unitElement } = elements;
+  const availableWidth = Number(readout.clientWidth) || 0;
+  if (
+    availableWidth <= 1 ||
+    typeof window === 'undefined' ||
+    typeof window.getComputedStyle !== 'function'
+  ) {
+    return { ...elements, fit: null };
+  }
+
+  const readoutStyle = window.getComputedStyle(readout);
+  const valueStyle = window.getComputedStyle(valueElement);
+  const unitStyle = unitElement ? window.getComputedStyle(unitElement) : null;
+  return {
+    ...elements,
+    fit: computeQuickAccessSensorReadoutFit({
+      availableWidth,
+      valueWidth: getMeasuredElementWidth(valueElement),
+      unitWidth: getMeasuredElementWidth(unitElement),
+      gapWidth: Number.parseFloat(readoutStyle.columnGap || readoutStyle.gap) || 0,
+      preferredValueFontSize: Number.parseFloat(valueStyle.fontSize),
+      preferredUnitFontSize: Number.parseFloat(unitStyle?.fontSize) || 0,
+    }),
+  };
+}
+
+function applyQuickAccessSensorReadoutFit(measurement) {
+  const { readout, valueElement, unitElement, fit } = measurement || {};
+  if (!fit?.fitted || !valueElement) return false;
+
+  valueElement.style.fontSize = `${fit.valueFontSize.toFixed(3)}px`;
+  if (unitElement) unitElement.style.fontSize = `${fit.unitFontSize.toFixed(3)}px`;
+  readout.dataset.valueFit = 'reduced';
+  readout.dataset.valueFitScale = fit.scale.toFixed(4);
+  return true;
+}
+
+function fitQuickAccessSensorReadoutElements(readouts) {
+  // Reset all preferred sizes first, then batch DOM reads before any fitted sizes are written.
+  // This avoids a read/write layout cycle for every tile when a window is snapped or restored.
+  const elements = readouts
+    .map((readout) => resetQuickAccessSensorReadoutFit(readout))
+    .filter(Boolean);
+  const measurements = elements.map((entry) => measureQuickAccessSensorReadoutFit(entry));
+  measurements.forEach((measurement) => applyQuickAccessSensorReadoutFit(measurement));
+}
+
+/**
+ * Fits one numeric readout to its current tile width without changing the saved size preference.
+ * Clearing inline sizes first means widening a tile restores the preferred CSS size rather than
+ * leaving a previously reduced value permanently small.
+ *
+ * @param {Element} readout
+ * @returns {boolean} Whether a reduced size was applied.
+ */
+function fitQuickAccessSensorReadout(readout) {
+  const elements = resetQuickAccessSensorReadoutFit(readout);
+  return elements
+    ? applyQuickAccessSensorReadoutFit(measureQuickAccessSensorReadoutFit(elements))
+    : false;
+}
+
+function fitQuickAccessSensorReadouts(root = document) {
+  fitQuickAccessSensorReadoutElements(getQuickAccessSensorReadouts(root));
+}
+
+let quickAccessSensorReadoutResizeObserver = null;
+let quickAccessSensorReadoutResizeFrame = null;
+const quickAccessSensorReadoutObservedWidths = new WeakMap();
+
+function getQuickAccessSensorReadoutResizeObserver() {
+  if (quickAccessSensorReadoutResizeObserver) return quickAccessSensorReadoutResizeObserver;
+  if (typeof window === 'undefined' || typeof window.ResizeObserver !== 'function') return null;
+
+  quickAccessSensorReadoutResizeObserver = new window.ResizeObserver((entries) => {
+    const resizedReadouts = entries
+      .filter((entry) => {
+        const width = Number(entry.contentRect?.width) || Number(entry.target.clientWidth) || 0;
+        const previousWidth = quickAccessSensorReadoutObservedWidths.get(entry.target);
+        quickAccessSensorReadoutObservedWidths.set(entry.target, width);
+        return previousWidth === undefined || Math.abs(previousWidth - width) >= 0.5;
+      })
+      .map((entry) => entry.target);
+    fitQuickAccessSensorReadoutElements(resizedReadouts);
+  });
+  return quickAccessSensorReadoutResizeObserver;
+}
+
+function syncQuickAccessSensorReadoutFit(root = document) {
+  const readouts = getQuickAccessSensorReadouts(root);
+  const observer = getQuickAccessSensorReadoutResizeObserver();
+  if (observer) {
+    observer.disconnect();
+    readouts.forEach((readout) => {
+      quickAccessSensorReadoutObservedWidths.set(readout, Number(readout.clientWidth) || 0);
+      observer.observe(readout);
+    });
+  }
+  fitQuickAccessSensorReadoutElements(readouts);
+}
+
+function scheduleQuickAccessSensorReadoutFit() {
+  if (quickAccessSensorReadoutResizeFrame !== null) return;
+  const run = () => {
+    quickAccessSensorReadoutResizeFrame = null;
+    fitQuickAccessSensorReadouts();
+  };
+
+  quickAccessSensorReadoutResizeFrame =
+    typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function'
+      ? window.requestAnimationFrame(run)
+      : window.setTimeout(run, 0);
+}
+
+if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+  window.addEventListener('resize', scheduleQuickAccessSensorReadoutFit);
 }
 
 function getQuickAccessCameraPreviewRefresh(entityId) {
@@ -6885,6 +7290,257 @@ function renderCalendarTileStateMarkup(entity) {
 }
 
 // --- Quick Controls ---
+function collectExistingQuickAccessNodes(container) {
+  const existingNodesById = new Map();
+  container.querySelectorAll('.control-item[data-entity-id]').forEach((node) => {
+    if (!node?.dataset?.entityId || existingNodesById.has(node.dataset.entityId)) return;
+    existingNodesById.set(node.dataset.entityId, node);
+  });
+  return existingNodesById;
+}
+
+function createOrReuseQuickAccessTile(entityId, existingNodesById) {
+  // Comparison graphs are tiles backed by config, not by an entity, so they must be handled
+  // before the STATES lookup — otherwise they resolve to nothing and render as unavailable.
+  if (isComparisonGraphId(entityId)) {
+    const graph = getComparisonGraphById(entityId);
+    const existingGraphNode = existingNodesById.get(entityId);
+    const graphSignature = graph ? getComparisonGraphSignature(graph) : 'graph|missing';
+
+    if (existingGraphNode && existingGraphNode.dataset.renderSignature === graphSignature) {
+      // Re-attempt the history fetch (throttled) — the first one may have run before the
+      // WebSocket was connected.
+      hydrateComparisonGraphTile(existingGraphNode, entityId, { renderNow: false });
+      existingNodesById.delete(entityId);
+      return existingGraphNode;
+    }
+
+    return createComparisonGraphTile(entityId);
+  }
+
+  const resolvedEntityId = utils.resolveEntityId(entityId, state.STATES) || entityId;
+  const entity = state.STATES[resolvedEntityId];
+  emitUiDebug('quick_access.render_tile', {
+    requestedEntityId: entityId,
+    resolvedEntityId,
+    entityFound: !!entity,
+    state: entity?.state || null,
+    domain: resolvedEntityId.includes('.') ? resolvedEntityId.split('.')[0] : null,
+  });
+
+  const renderedEntityId = entity ? resolvedEntityId : entityId;
+  const existingNode = existingNodesById.get(renderedEntityId);
+  const nextSignature = entity
+    ? getControlRenderSignature(entity)
+    : getUnavailableControlSignature(entityId);
+
+  if (
+    existingNode &&
+    existingNode.dataset.renderSignature === nextSignature &&
+    (entity
+      ? updateExistingQuickAccessControl(existingNode, entity, { context: 'quick-access' })
+      : updateExistingUnavailableControl(existingNode, entityId))
+  ) {
+    existingNodesById.delete(renderedEntityId);
+    return existingNode;
+  }
+
+  const control = entity
+    ? createControlElement(entity, { context: 'quick-access' })
+    : createUnavailableElement(entityId);
+  control.dataset.renderSignature = nextSignature;
+  return control;
+}
+
+function reconcileQuickAccessGrid(grid, entityIds, existingNodesById) {
+  const desiredNodes = entityIds.map((entityId) =>
+    createOrReuseQuickAccessTile(entityId, existingNodesById)
+  );
+  const desiredNodeSet = new Set(desiredNodes);
+
+  desiredNodes.forEach((node, index) => {
+    const currentAtIndex = grid.children[index];
+    if (currentAtIndex !== node) {
+      grid.insertBefore(node, currentAtIndex || null);
+    }
+  });
+
+  Array.from(grid.children).forEach((node) => {
+    if (!desiredNodeSet.has(node)) node.remove();
+  });
+}
+
+const QUICK_ACCESS_DEVICE_ICON_PATHS = Object.freeze({
+  home: '<path d="M3 11.2 12 4l9 7.2v8.3a.5.5 0 0 1-.5.5H15v-6H9v6H3.5a.5.5 0 0 1-.5-.5v-8.3Z"/>',
+  desktop: '<path d="M3 4h18v12H3V4Zm2 2v8h14V6H5Zm3 12h8l2 2H6l2-2Z"/>',
+  server:
+    '<path d="M4 4h16v7H4V4Zm2 2v3h12V6H6Zm-2 7h16v7H4v-7Zm2 2v3h12v-3H6Z"/><circle cx="8" cy="7.5" r="1"/><circle cx="8" cy="16.5" r="1"/>',
+  board:
+    '<path d="M8 8h8v8H8V8Zm2 2v4h4v-4h-4Z"/><path d="M3 9h3v2H3V9Zm0 4h3v2H3v-2Zm15-4h3v2h-3V9Zm0 4h3v2h-3v-2ZM9 3h2v3H9V3Zm4 0h2v3h-2V3ZM9 18h2v3H9v-3Zm4 0h2v3h-2v-3Z"/>',
+  device:
+    '<path d="M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Zm2 3v4h4V7H7Zm6 0v4h4V7h-4Zm-6 6v4h4v-4H7Zm6 0v4h4v-4h-4Z"/>',
+});
+
+function getQuickAccessDeviceIconMarkup(kind) {
+  const paths = QUICK_ACCESS_DEVICE_ICON_PATHS[kind] || QUICK_ACCESS_DEVICE_ICON_PATHS.device;
+  return `<svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">${paths}</svg>`;
+}
+
+function createQuickAccessRoomSection(section) {
+  const room = document.createElement('section');
+  room.className = 'quick-access-room';
+
+  const heading = document.createElement('h3');
+  heading.className = 'quick-access-room-header';
+  heading.innerHTML = `
+    <span class="quick-access-room-device-icon" aria-hidden="true"></span>
+    <span class="quick-access-room-name"></span>
+    <span class="quick-access-room-count" aria-hidden="true"></span>
+  `;
+  room.appendChild(heading);
+
+  const grid = document.createElement('div');
+  grid.className = 'controls-grid quick-access-room-grid';
+  room.appendChild(grid);
+
+  updateQuickAccessRoomSection(room, section);
+  return room;
+}
+
+let quickAccessRoomResizeObserver = null;
+let quickAccessRoomResizeFrame = null;
+let quickAccessRoomLayoutContainer = null;
+
+function clearQuickAccessRoomMasonry(container = quickAccessRoomLayoutContainer) {
+  if (!container) return;
+  container.classList.remove('quick-access-masonry');
+  container.querySelectorAll(':scope > .quick-access-room').forEach((room) => {
+    room.style.removeProperty('grid-row-end');
+  });
+}
+
+function applyQuickAccessRoomMasonry(container = quickAccessRoomLayoutContainer) {
+  if (!container?.classList.contains('quick-access-rooms')) {
+    clearQuickAccessRoomMasonry(container);
+    return false;
+  }
+
+  const rooms = Array.from(container.querySelectorAll(':scope > .quick-access-room'));
+  if (!rooms.length) {
+    clearQuickAccessRoomMasonry(container);
+    return false;
+  }
+
+  const containerStyles = window.getComputedStyle(container);
+  const rowHeight = Number.parseFloat(containerStyles.gridAutoRows) || 1;
+  const rowGap = Number.parseFloat(containerStyles.rowGap) || 0;
+  const measurements = rooms.map((room) => room.getBoundingClientRect().height);
+  if (measurements.some((height) => !Number.isFinite(height) || height <= 0)) {
+    clearQuickAccessRoomMasonry(container);
+    return false;
+  }
+
+  rooms.forEach((room, index) => {
+    const span = calculateQuickAccessMasonryRowSpan(measurements[index], rowHeight, rowGap);
+    room.style.gridRowEnd = `span ${span}`;
+  });
+  container.classList.add('quick-access-masonry');
+  return true;
+}
+
+function scheduleQuickAccessRoomMasonry() {
+  if (quickAccessRoomResizeFrame !== null) return;
+  const run = () => {
+    quickAccessRoomResizeFrame = null;
+    applyQuickAccessRoomMasonry();
+  };
+  quickAccessRoomResizeFrame =
+    typeof window.requestAnimationFrame === 'function'
+      ? window.requestAnimationFrame(run)
+      : window.setTimeout(run, 0);
+}
+
+function getQuickAccessRoomResizeObserver() {
+  if (quickAccessRoomResizeObserver) return quickAccessRoomResizeObserver;
+  if (typeof window.ResizeObserver !== 'function') return null;
+  quickAccessRoomResizeObserver = new window.ResizeObserver(scheduleQuickAccessRoomMasonry);
+  return quickAccessRoomResizeObserver;
+}
+
+function syncQuickAccessRoomMasonry(container, enabled) {
+  quickAccessRoomLayoutContainer = enabled ? container : null;
+  const observer = getQuickAccessRoomResizeObserver();
+  observer?.disconnect();
+
+  if (!enabled) {
+    clearQuickAccessRoomMasonry(container);
+    return;
+  }
+
+  applyQuickAccessRoomMasonry(container);
+  observer?.observe(container);
+  container.querySelectorAll(':scope > .quick-access-room').forEach((room) => {
+    observer?.observe(room);
+  });
+}
+
+function updateQuickAccessRoomSection(room, section) {
+  const identity = getQuickAccessDeviceIdentity(section);
+  room.dataset.roomId = section.id;
+  room.dataset.deviceKind = identity.kind;
+  room.dataset.deviceAccent = identity.accent;
+  room.style.setProperty('--quick-access-pastel-rgb', identity.rgb);
+  room.setAttribute('aria-label', section.name);
+  const heading = Array.from(room.children).find((child) =>
+    child.classList.contains('quick-access-room-header')
+  );
+  if (!heading) return;
+
+  const name = heading.querySelector('.quick-access-room-name');
+  const count = heading.querySelector('.quick-access-room-count');
+  const icon = heading.querySelector('.quick-access-room-device-icon');
+  if (name) name.textContent = section.name;
+  if (count) count.textContent = String(section.entityIds.length);
+  if (icon && icon.dataset.kind !== identity.kind) {
+    icon.dataset.kind = identity.kind;
+    icon.innerHTML = getQuickAccessDeviceIconMarkup(identity.kind);
+  }
+}
+
+function renderQuickAccessRoomSections(container, sections, existingNodesById) {
+  const existingRoomsById = new Map();
+  Array.from(container.children).forEach((child) => {
+    if (child.classList.contains('quick-access-room') && child.dataset.roomId) {
+      existingRoomsById.set(child.dataset.roomId, child);
+    }
+  });
+
+  const desiredRooms = sections.map((section) => {
+    const room = existingRoomsById.get(section.id) || createQuickAccessRoomSection(section);
+    updateQuickAccessRoomSection(room, section);
+    return { room, section };
+  });
+
+  desiredRooms.forEach(({ room }, index) => {
+    const currentAtIndex = container.children[index];
+    if (currentAtIndex !== room) {
+      container.insertBefore(room, currentAtIndex || null);
+    }
+  });
+
+  desiredRooms.forEach(({ room, section }) => {
+    const grid = Array.from(room.children).find((child) =>
+      child.classList.contains('quick-access-room-grid')
+    );
+    if (grid) reconcileQuickAccessGrid(grid, section.entityIds, existingNodesById);
+  });
+
+  const desiredRoomSet = new Set(desiredRooms.map(({ room }) => room));
+  Array.from(container.children).forEach((child) => {
+    if (!desiredRoomSet.has(child)) child.remove();
+  });
+}
+
 function renderQuickControls() {
   try {
     const container = document.getElementById('quick-controls');
@@ -6894,100 +7550,28 @@ function renderQuickControls() {
     }
 
     const config = ensureQuickAccessConfig();
+    const layout = getQuickAccessRenderLayout(config);
+    const showingRoomSections = layout.presentation === QUICK_ACCESS_PRESENTATION_ROOMS;
     renderQuickAccessTabs(config);
 
-    const favorites = getActiveQuickAccessEntityIds();
-    const desiredNodes = [];
-    const existingNodesById = new Map();
-    container.querySelectorAll('.control-item[data-entity-id]').forEach((node) => {
-      if (!node || !node.dataset?.entityId) return;
-      if (!existingNodesById.has(node.dataset.entityId)) {
-        existingNodesById.set(node.dataset.entityId, node);
-      }
-    });
+    const existingNodesById = collectExistingQuickAccessNodes(container);
+    container.classList.toggle('quick-access-rooms', showingRoomSections);
+    container.classList.toggle('controls-grid', !showingRoomSections);
+    container.classList.toggle('reorganize-mode', isReorganizeMode);
 
-    // Iterate through ALL favorited entity IDs (not just those in STATES)
-    // This ensures unavailable entities are still shown with an error state
-    favorites.slice(0, 12).forEach((entityId) => {
-      // Comparison graphs are tiles backed by config, not by an entity, so they must be handled
-      // before the STATES lookup — otherwise they resolve to nothing and render as unavailable.
-      if (isComparisonGraphId(entityId)) {
-        const graph = getComparisonGraphById(entityId);
-        const existingGraphNode = existingNodesById.get(entityId);
-        const graphSignature = graph ? getComparisonGraphSignature(graph) : 'graph|missing';
-
-        if (existingGraphNode && existingGraphNode.dataset.renderSignature === graphSignature) {
-          // Re-attempt the history fetch (throttled) — the first one may have run before the
-          // WebSocket was connected.
-          hydrateComparisonGraphTile(existingGraphNode, entityId, { renderNow: false });
-          desiredNodes.push(existingGraphNode);
-          existingNodesById.delete(entityId);
-          return;
-        }
-
-        desiredNodes.push(createComparisonGraphTile(entityId));
-        return;
-      }
-
-      const resolvedEntityId = utils.resolveEntityId(entityId, state.STATES) || entityId;
-      const entity = state.STATES[resolvedEntityId];
-      emitUiDebug('quick_access.render_tile', {
-        requestedEntityId: entityId,
-        resolvedEntityId,
-        entityFound: !!entity,
-        state: entity?.state || null,
-        domain: resolvedEntityId.includes('.') ? resolvedEntityId.split('.')[0] : null,
-      });
-
-      const renderedEntityId = entity ? resolvedEntityId : entityId;
-      const existingNode = existingNodesById.get(renderedEntityId);
-      const nextSignature = entity
-        ? getControlRenderSignature(entity)
-        : getUnavailableControlSignature(entityId);
-
-      if (
-        existingNode &&
-        existingNode.dataset.renderSignature === nextSignature &&
-        (entity
-          ? updateExistingQuickAccessControl(existingNode, entity, { context: 'quick-access' })
-          : updateExistingUnavailableControl(existingNode, entityId))
-      ) {
-        desiredNodes.push(existingNode);
-        existingNodesById.delete(renderedEntityId);
-        return;
-      }
-
-      if (entity) {
-        // Entity exists in STATES - render normally
-        const control = createControlElement(entity, { context: 'quick-access' });
-        control.dataset.renderSignature = nextSignature;
-        desiredNodes.push(control);
-      } else {
-        // Entity does not exist in STATES - render unavailable state
-        const control = createUnavailableElement(entityId);
-        control.dataset.renderSignature = nextSignature;
-        desiredNodes.push(control);
-      }
-    });
-
-    desiredNodes.forEach((node, index) => {
-      const currentAtIndex = container.children[index];
-      if (currentAtIndex !== node) {
-        container.insertBefore(node, currentAtIndex || null);
-      }
-    });
-
-    while (container.children.length > desiredNodes.length) {
-      container.removeChild(container.lastElementChild);
+    if (showingRoomSections) {
+      renderQuickAccessRoomSections(container, layout.sections, existingNodesById);
+    } else {
+      reconcileQuickAccessGrid(container, layout.sections[0]?.entityIds || [], existingNodesById);
     }
+    syncQuickAccessRoomMasonry(container, showingRoomSections);
+
     camera.pruneCameraPreviews();
 
-    if (isReorganizeMode) {
-      container.classList.add('reorganize-mode');
-      addRemoveButtons();
-    }
-    // After insertion, so the grid's real column count is known.
-    applyComparisonGraphSpans(container);
+    if (isReorganizeMode) addRemoveButtons();
+    // After insertion, so each grid's real column count is known.
+    applyQuickAccessComparisonGraphSpans(container);
+    syncQuickAccessSensorReadoutFit(container);
     setupQuickAccessGridKeyboardNavigation();
     syncQuickAccessRovingTabIndex();
     refreshVisibleEntityCache();
@@ -7595,6 +8179,9 @@ function createControlElement(entity, options = {}) {
     let stateDisplay = '';
     if (domain === 'sensor' && !isTimerSensor) {
       const sensorDisplay = isQuickAccessContext ? getQuickAccessSensorDisplayParts(entity) : null;
+      const timestampDisplay = isQuickAccessContext
+        ? getQuickAccessTimestampSensorDisplay(entity)
+        : null;
 
       if (sensorDisplay) {
         div.classList.add('sensor-entity', 'sensor-numeric-entity');
@@ -7603,12 +8190,18 @@ function createControlElement(entity, options = {}) {
         stateDisplay = `
         <div class="control-state control-sensor-readout" aria-label="${sensorLabel}">
           <span class="control-sensor-value">${utils.escapeHtml(sensorDisplay.value)}</span>
-          ${sensorDisplay.unit ? `<span class="control-sensor-unit">${utils.escapeHtml(sensorDisplay.unit)}</span>` : ''}
+          ${sensorDisplay.displayUnit ? `<span class="control-sensor-unit">${utils.escapeHtml(sensorDisplay.displayUnit)}</span>` : ''}
         </div>
       `;
       } else {
         div.classList.add('sensor-entity');
-        stateDisplay = `<div class="control-state">${state}</div>`;
+        if (timestampDisplay) {
+          div.classList.add('sensor-timestamp-entity');
+          div.title = `${utils.getEntityDisplayName(entity)}: ${timestampDisplay.exactText}`;
+          stateDisplay = `<div class="control-state" aria-label="${escapeHtmlAttribute(timestampDisplay.exactText)}">${utils.escapeHtml(timestampDisplay.text)}</div>`;
+        } else {
+          stateDisplay = `<div class="control-state">${state}</div>`;
+        }
       }
     } else if (isTimer) {
       const timerDisplay = utils.escapeHtml(
@@ -8018,6 +8611,9 @@ function updateExistingQuickAccessControl(div, entity, options = {}) {
     const sensorDisplay = isQuickAccessContext
       ? getQuickAccessSensorDisplayParts(displayEntity)
       : null;
+    const timestampDisplay = isQuickAccessContext
+      ? getQuickAccessTimestampSensorDisplay(displayEntity)
+      : null;
     div.classList.add('sensor-entity');
     div.onclick = () => {
       if (!shouldBlockInteraction(div))
@@ -8028,20 +8624,37 @@ function updateExistingQuickAccessControl(div, entity, options = {}) {
       : `${utils.getEntityDisplayName(displayEntity)}: ${utils.getEntityDisplayState(displayEntity)}`;
     if (sensorDisplay) {
       div.classList.add('sensor-numeric-entity');
+      const shouldChart = isSensorSparklineEligible(displayEntity);
+      div.classList.toggle('sensor-chart-entity', shouldChart);
       if (stateEl) stateEl.setAttribute('aria-label', sensorDisplay.text);
       const value = div.querySelector('.control-sensor-value');
       if (value) value.textContent = sensorDisplay.value;
       const unit = div.querySelector('.control-sensor-unit');
-      if (unit) unit.textContent = sensorDisplay.unit;
-      appendLiveSensorHistoryValue(displayEntity);
-      const cachedHistory = sensorHistoryCache.get(displayEntity.entity_id);
-      if (cachedHistory?.series?.length) {
-        renderSensorTileSparkline(div, displayEntity.entity_id, cachedHistory.series);
+      if (unit) unit.textContent = sensorDisplay.displayUnit;
+      if (stateEl) fitQuickAccessSensorReadout(stateEl);
+      if (shouldChart) {
+        appendLiveSensorHistoryValue(displayEntity);
+        const cachedHistory = sensorHistoryCache.get(displayEntity.entity_id);
+        if (cachedHistory?.series?.length) {
+          renderSensorTileSparkline(div, displayEntity.entity_id, cachedHistory.series);
+        } else {
+          mountSensorTileSparkline(div, displayEntity);
+        }
+      } else {
+        div.querySelector('.control-sensor-sparkline')?.remove();
       }
     } else if (stateEl) {
       div.classList.remove('sensor-numeric-entity');
+      div.classList.remove('sensor-chart-entity');
       div.querySelector('.control-sensor-sparkline')?.remove();
-      stateEl.textContent = utils.getEntityDisplayState(displayEntity);
+      div.classList.toggle('sensor-timestamp-entity', !!timestampDisplay);
+      stateEl.textContent = timestampDisplay?.text || utils.getEntityDisplayState(displayEntity);
+      if (timestampDisplay) {
+        div.title = `${utils.getEntityDisplayName(displayEntity)}: ${timestampDisplay.exactText}`;
+        stateEl.setAttribute('aria-label', timestampDisplay.exactText);
+      } else {
+        stateEl.removeAttribute('aria-label');
+      }
     }
     return true;
   }
@@ -8191,20 +8804,22 @@ function showSensorDetails(entity) {
       summary.appendChild(readout);
       body.appendChild(summary);
 
-      const sparklineFrame = document.createElement('div');
-      sparklineFrame.className = 'sensor-detail-sparkline';
-      sparklineFrame.hidden = true;
-      const cachedHistory = sensorHistoryCache.get(entity.entity_id);
-      if (cachedHistory?.series?.length) {
-        renderSensorDetailSparkline(sparklineFrame, cachedHistory.series);
-      }
-      body.appendChild(sparklineFrame);
-
-      fetchSensorHistory(entity.entity_id).then((series) => {
-        if (modal.isConnected) {
-          renderSensorDetailSparkline(sparklineFrame, series);
+      if (isSensorSparklineEligible(entity)) {
+        const sparklineFrame = document.createElement('div');
+        sparklineFrame.className = 'sensor-detail-sparkline';
+        sparklineFrame.hidden = true;
+        const cachedHistory = sensorHistoryCache.get(entity.entity_id);
+        if (cachedHistory?.series?.length) {
+          renderSensorDetailSparkline(sparklineFrame, cachedHistory.series);
         }
-      });
+        body.appendChild(sparklineFrame);
+
+        fetchSensorHistory(entity.entity_id).then((series) => {
+          if (modal.isConnected) {
+            renderSensorDetailSparkline(sparklineFrame, series);
+          }
+        });
+      }
       return;
     }
 
@@ -11693,10 +12308,10 @@ function initUpdateUI() {
 
         try {
           const result = await window.electronAPI.checkForUpdates();
-          if (result.status === 'dev') {
-            // In development mode, auto-updater doesn't work
+          if (result.status === 'dev' || result.status === 'local') {
             if (updateStatusText)
-              updateStatusText.textContent = t('Auto-updates only work in packaged builds');
+              updateStatusText.textContent =
+                result.message || t('Auto-updates only work in packaged builds');
             if (checkUpdatesBtn) checkUpdatesBtn.disabled = false;
           } else if (result.status === 'portable' || result.status === 'manual') {
             portableDownloadUrl = result.downloadUrl || null;
@@ -11931,5 +12546,7 @@ export {
   callMediaPlayerService,
   getMediaSeekTarget,
   getTodoActiveCount,
+  computeQuickAccessSensorReadoutFit,
+  fitQuickAccessSensorReadout,
   switchQuickAccessPage,
 };

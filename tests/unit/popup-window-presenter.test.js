@@ -51,6 +51,7 @@ function createPresenter(overrides = {}) {
     platform: overrides.platform || 'win32',
     getConfig: () => config,
     getWorkAreas: overrides.getWorkAreas || (() => [WORK_AREA]),
+    prepareWindowForShow: overrides.prepareWindowForShow || null,
     shouldReleaseElevationOnBlur: overrides.shouldReleaseElevationOnBlur || (() => false),
     requestCompositorRaise: overrides.requestCompositorRaise || null,
     requestCompositorRestore: overrides.requestCompositorRestore || null,
@@ -60,6 +61,35 @@ function createPresenter(overrides = {}) {
 }
 
 describe('popup window presenter', () => {
+  test('applies monitor placement before showing and before capturing the restore position', () => {
+    const targetWindow = createWindowMock();
+    const config = { windowPosition: { x: 300, y: 200 } };
+    const prepareWindowForShow = jest.fn((window) => {
+      window.setBounds(WORK_AREA);
+      config.windowPosition = { x: WORK_AREA.x, y: WORK_AREA.y };
+    });
+    const { presenter } = createPresenter({ config, prepareWindowForShow });
+    expect(presenter.showAboveFullScreen(targetWindow)).toBe(true);
+    jest.runAllTimers();
+    expect(prepareWindowForShow).toHaveBeenCalledWith(targetWindow);
+    expect(prepareWindowForShow.mock.invocationCallOrder[0]).toBeLessThan(
+      targetWindow.show.mock.invocationCallOrder[0]
+    );
+    expect(targetWindow.state.bounds).toEqual(WORK_AREA);
+  });
+
+  test('still shows the window if monitor placement fails', () => {
+    const targetWindow = createWindowMock();
+    const { presenter, log } = createPresenter({
+      prepareWindowForShow: () => {
+        throw new Error('display unavailable');
+      },
+    });
+    expect(presenter.showAboveFullScreen(targetWindow)).toBe(true);
+    expect(targetWindow.show).toHaveBeenCalled();
+    expect(log.warn).toHaveBeenCalled();
+  });
+
   beforeEach(() => {
     jest.useFakeTimers();
   });

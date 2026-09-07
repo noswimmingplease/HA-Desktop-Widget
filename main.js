@@ -26,6 +26,8 @@ const { pathToFileURL, fileURLToPath } = require('url');
 const PRELOAD_SCRIPT_PATH = path.join(__dirname, 'dist-preload', 'preload.cjs');
 const log = require('electron-log');
 const pkg = require('./package.json');
+const IS_LOCAL_BUILD = pkg.localBuild === true;
+const GITHUB_REPOSITORY = pkg.githubRepository || 'Robertg761/HA-Desktop-Widget';
 
 // ---------------------------------------------------------------------------
 // Early startup: profile selection and the layer-shell handoff. Everything in
@@ -35,6 +37,15 @@ const pkg = require('./package.json');
 // Only the small modules this section needs are required here.
 // ---------------------------------------------------------------------------
 const { configureMainLogging } = require('./src/main-logging.cjs');
+const {
+  canPersistMainWindowBounds,
+  createFullScreenController,
+  isFullScreenExitShortcut,
+  isFullScreenShortcut,
+  normalizeCloseButtonAction,
+  shouldStartFullScreen,
+  toggleWindowMaximized,
+} = require('./src/window-mode.cjs');
 const {
   SMOKE_TEST_PROFILE_PREFIX,
   removeSmokeTestProfile,
@@ -63,12 +74,25 @@ const {
 } = require('./src/portal-global-shortcuts.cjs');
 
 configureMainLogging(log, { isPackaged: app.isPackaged });
+// Profile selection can log before Electron resolves its final userData path.
+// Defer file logging so development and smoke runs never write production logs.
+log.transports.file.level = false;
 
 // Log the app starting up
 log.info('App starting...');
 
 const IS_DEV_MODE = process.argv.includes('--dev');
+const USE_ISOLATED_DEV_PROFILE = !app.isPackaged;
+// A development profile is also useful for long-running previews. Keep its renderer stable
+// unless the caller explicitly opted into live reload; fs.watch can emit directory-only
+// notifications on Windows even when no bundle content changed, and reloading for those events
+// causes a visible full-window flash.
+const DEV_LIVE_RELOAD_ENABLED =
+  IS_DEV_MODE && !app.isPackaged && process.argv.includes('--live-reload');
+const DEV_TOOLS_ENABLED = IS_DEV_MODE && !app.isPackaged && process.argv.includes('--dev-tools');
 const IS_SMOKE_TEST_MODE = process.argv.includes('--smoke-test');
+const START_MAIN_WINDOW_FULL_SCREEN = shouldStartFullScreen(process.argv);
+const PRESERVE_DEV_PROFILE = process.argv.includes('--preserve-dev-profile');
 const IS_CLIMATE_DEMO_MODE =
   IS_DEV_MODE && !app.isPackaged && process.argv.includes('--demo-climate');
 const IS_CLIMATE_DEMO_OVERLAY_MODE =
@@ -94,24 +118,26 @@ if (IS_CLIMATE_DEMO_MODE) {
   );
   app.setPath('userData', smokeTestUserDataPath);
   log.info(`Starting isolated packaged-runtime smoke test: ${smokeTestUserDataPath}`);
-} else if (IS_DEV_MODE && !app.isPackaged) {
+} else if (USE_ISOLATED_DEV_PROFILE) {
   // The single-instance lock lives in the profile, so a dev run sharing the installed
   // widget's profile would just hand off to it and exit. A persistent sibling profile
-  // lets `npm run dev` start alongside the real widget. Refresh the clone on every
-  // launch so development sees the current dashboard, HA-owned profile assignment,
-  // desktop identity, and encrypted OAuth credential. Writes after startup remain in
-  // the sibling profile and cannot modify production settings.
+  // lets `npm run dev` start alongside the real widget. It refreshes from production
+  // by default; --preserve-dev-profile retains deliberate development-only changes.
+  // Writes after startup remain in the sibling profile and cannot modify production.
   const productionUserDataPath = app.getPath('userData');
   const devUserDataPath = `${productionUserDataPath}-dev`;
-  const cloneResult = cloneProductionProfile({
-    productionUserDataPath,
-    developmentUserDataPath: devUserDataPath,
-    log,
-  });
+  const cloneResult = PRESERVE_DEV_PROFILE
+    ? { copied: [], missing: [], failed: [] }
+    : cloneProductionProfile({
+        productionUserDataPath,
+        developmentUserDataPath: devUserDataPath,
+        log,
+      });
+  if (PRESERVE_DEV_PROFILE) fs.mkdirSync(devUserDataPath, { recursive: true });
   app.setPath('userData', devUserDataPath);
   log.info(
-    `Development run using isolated production clone: ${devUserDataPath} ` +
-      `(copied: ${cloneResult.copied.join(', ') || 'none'})`
+    `Development run using isolated development profile: ${devUserDataPath} ` +
+      `(${PRESERVE_DEV_PROFILE ? 'preserved existing development profile' : `copied: ${cloneResult.copied.join(', ') || 'none'}`})`
   );
 }
 
@@ -119,6 +145,9 @@ if (IS_CLIMATE_DEMO_MODE) {
 const userDataPath = app.getPath('userData');
 app.setPath('userData', userDataPath);
 app.setPath('sessionData', path.join(userDataPath, 'session'));
+log.transports.file.resolvePathFn = () => path.join(userDataPath, 'logs', 'main.log');
+log.transports.file.level = 'info';
+log.info('Application profile selected.');
 
 // On a tiling Wayland compositor (Hyprland, Sway, niri) every floating toplevel renders
 // above every tiled window, so the widget acts as a permanent overlay no window can cover
@@ -268,6 +297,8 @@ const {
 } = require('./src/desktop-pin-ipc.cjs');
 const {
   getWindowsStartupRegistryName,
+  LOGIN_STARTUP_ARG,
+  shouldStartInTrayAtLogin,
   isWindowsLoginItemEnabled,
   quoteWindowsExecutablePath,
 } = require('./src/windows-startup.cjs');
@@ -298,7 +329,7 @@ const {
   shouldUseTransparentWindow,
   supportsAutoUpdater,
 } = require('./src/platform.cjs');
-const { clampPositionToWorkAreas } = require('./src/window-placement.cjs');
+const { normalizeWindowDisplayId, resolveWindowPlacement } = require('./src/window-placement.cjs');
 const { attachEditHandlers, installApplicationMenu } = require('./src/application-menu.cjs');
 const {
   createLinuxPopupHotkeyController,
@@ -344,8 +375,7 @@ function getAutoUpdater() {
 }
 
 const DESKTOP_PIN_WINDOW_CORNER_RADIUS = 24;
-const LOCALE_PACK_MANIFEST_URL =
-  'https://raw.githubusercontent.com/Robertg761/HA-Desktop-Widget/main/locale-packs/manifest.json';
+const LOCALE_PACK_MANIFEST_URL = `https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/locale-packs/manifest.json`;
 const DESKTOP_PIN_ACTION_RESPONSE_TIMEOUT_MS = 30000;
 const EXTERNAL_LINK_PROTOCOLS = new Set(['http:', 'https:']);
 
@@ -436,6 +466,7 @@ function forwardRendererConsole(webContents, label = 'renderer') {
 
     if (level === 'error' || level === '3') {
       log.error(`[${label}] ${message}`);
+      if (IS_SMOKE_TEST_MODE) finishSmokeTest(false, `Renderer error: ${message}`);
     } else if (level === 'warning' || level === 'warn' || level === '2') {
       log.warn(`[${label}] ${message}`);
     }
@@ -492,7 +523,8 @@ if (!gotSingleInstanceLock) {
   // Launching the widget again is the user asking to see it, the same thing the tray click and the
   // popup hotkey do. This is also the only way back for a window hidden to the tray on a desktop
   // whose tray is missing or broken.
-  app.on('second-instance', () => {
+  app.on('second-instance', (_event, argv) => {
+    if (shouldStartInTrayAtLogin({ argv, enabled: config?.startInTrayAtLogin })) return;
     log.info('Second instance launched; showing the existing window');
     showMainWindowFromTray();
   });
@@ -553,6 +585,11 @@ const hasLegacyGlobalShortcutFallback = hasGlobalShortcutFallback({
 });
 
 let mainWindow;
+let initialMainWindowCreated = false;
+let lastNormalMainWindowBounds = null;
+let mainWindowFullScreenController = null;
+let mainWindowFullScreenEffectsSuppressed = false;
+let mainWindowFullScreenEffectsRestoreTimer = null;
 let tray;
 let config;
 let isQuitting = false;
@@ -719,6 +756,7 @@ function refreshLayerShellMonitors() {
 // Owns the window level, full-screen visibility, and saved position for every path that
 // pops the widget up, so a hotkey press lands above full-screen video instead of behind it.
 const popupWindowPresenter = createPopupWindowPresenter({
+  prepareWindowForShow: recoverMainWindowPlacement,
   getConfig: () => config,
   getWorkAreas: () => electronScreen.getAllDisplays().map((display) => display.workArea),
   supportsWindowPositioning: !usesCompositorOwnedPlacement,
@@ -780,6 +818,8 @@ const DEV_RELOAD_DEBOUNCE_MS = 220;
 const DEV_RELOAD_RETRY_MS = 160;
 const DEV_RELOAD_MAX_RETRIES = 20;
 const OPAQUE_WINDOW_BACKGROUND_COLOR = '#28282d';
+const FULL_SCREEN_EFFECTS_RESTORE_DELAY_MS = 320;
+const windowEffectState = new WeakMap();
 let devReloadTimer = null;
 let devReloadWatchersStarted = false;
 const devReloadWatchers = [];
@@ -814,8 +854,9 @@ function resolveFrostedGlassConfig(currentConfig = config, overrideFrostedGlass)
 function getWindowTransparencyOptions(currentConfig = config) {
   let transparent = shouldUseTransparentWindow(process.platform, process.env);
 
-  // Windows keeps a transparent window in both glass and non-glass modes so
-  // opacity can be applied to background surfaces without fading tiles/controls.
+  // Desktop pin windows keep a transparent surface on Windows so their rounded
+  // CSS shape does not reveal a rectangular native background. The main-window
+  // visual policy overrides this request to preserve native resize/snap support.
   if (process.platform === 'win32') {
     transparent = true;
   }
@@ -840,8 +881,21 @@ function getWindowTransparencyOptions(currentConfig = config) {
   };
 }
 
+function getEffectiveMainWindowTransparencyOptions(currentConfig = config) {
+  const requestedTransparency = getWindowTransparencyOptions(currentConfig);
+  const visualOptions = getMainWindowVisualOptions({
+    platform: process.platform,
+    frostedGlass: resolveFrostedGlassConfig(currentConfig),
+    transparencyOptions: requestedTransparency,
+  });
+  return {
+    transparent: visualOptions.transparent,
+    backgroundColor: visualOptions.backgroundColor,
+  };
+}
+
 function shouldUseNativeWindowOpacity(currentConfig = config) {
-  const transparencyOptions = getWindowTransparencyOptions(currentConfig);
+  const transparencyOptions = getEffectiveMainWindowTransparencyOptions(currentConfig);
   return !transparencyOptions.transparent;
 }
 
@@ -1005,7 +1059,7 @@ function reloadOpenWindowsIgnoringCache() {
 }
 
 function attemptDevWindowReload(triggerLabel = 'unknown', attempt = 0) {
-  if (!IS_DEV_MODE || isQuitting) return;
+  if (!DEV_LIVE_RELOAD_ENABLED || isQuitting) return;
 
   if (!fs.existsSync(DEV_RENDERER_BUNDLE_PATH) && attempt < DEV_RELOAD_MAX_RETRIES) {
     devReloadTimer = setTimeout(() => {
@@ -1020,7 +1074,7 @@ function attemptDevWindowReload(triggerLabel = 'unknown', attempt = 0) {
 }
 
 function scheduleDevWindowReload(triggerPath = '') {
-  if (!IS_DEV_MODE || isQuitting) return;
+  if (!DEV_LIVE_RELOAD_ENABLED || isQuitting) return;
   if (devReloadTimer) {
     clearTimeout(devReloadTimer);
   }
@@ -1033,11 +1087,21 @@ function scheduleDevWindowReload(triggerPath = '') {
 }
 
 function watchDevReloadTarget(targetPath, options = {}) {
-  if (!IS_DEV_MODE || !targetPath || !fs.existsSync(targetPath)) return;
+  if (!DEV_LIVE_RELOAD_ENABLED || !targetPath || !fs.existsSync(targetPath)) return;
 
   try {
+    const targetIsDirectory = fs.statSync(targetPath).isDirectory();
     const watcher = fs.watch(targetPath, options, (_eventType, fileName) => {
-      const changedPath = fileName ? path.join(targetPath, String(fileName)) : targetPath;
+      const changedPath =
+        targetIsDirectory && fileName ? path.join(targetPath, String(fileName)) : targetPath;
+      // Recursive Windows watchers can emit a notification for the containing directory even
+      // though no output file changed. Treating that as a build completion reloads every renderer
+      // and produces a visible flash in an otherwise idle preview.
+      try {
+        if (targetIsDirectory && fs.statSync(changedPath).isDirectory()) return;
+      } catch {
+        // A rename/delete can make the path disappear before stat. Reload so the UI reflects it.
+      }
       scheduleDevWindowReload(changedPath);
     });
     watcher.on('error', (error) => {
@@ -1050,7 +1114,7 @@ function watchDevReloadTarget(targetPath, options = {}) {
 }
 
 function startDevLiveReloadWatchers() {
-  if (!IS_DEV_MODE || devReloadWatchersStarted) return;
+  if (!DEV_LIVE_RELOAD_ENABLED || devReloadWatchersStarted) return;
   devReloadWatchersStarted = true;
 
   watchDevReloadTarget(path.join(__dirname, 'index.html'));
@@ -1201,12 +1265,13 @@ function getWindowsStartupRegistrationTarget(options = {}) {
   const portableExecutable = env.PORTABLE_EXECUTABLE_FILE;
   const portableBuild = isPortableBuild();
   const quotePath = options.quotePath !== false;
+  const args = options.legacyArgs ? [] : [LOGIN_STARTUP_ARG];
 
   if (portableBuild && portableExecutable) {
     const executablePath = portableExecutable;
     return {
       path: quotePath ? quoteWindowsExecutablePath(executablePath) : executablePath,
-      args: [],
+      args,
       name: getWindowsStartupRegistryName(pkg, app.getName()),
       executablePath,
     };
@@ -1221,7 +1286,7 @@ function getWindowsStartupRegistrationTarget(options = {}) {
   const executablePath = app.getPath('exe');
   return {
     path: quotePath ? quoteWindowsExecutablePath(executablePath) : executablePath,
-    args: [],
+    args,
     name: getWindowsStartupRegistryName(pkg, app.getName()),
     executablePath,
   };
@@ -1919,17 +1984,51 @@ async function unpinEntityFromDesktopInternal(entityId) {
   };
 }
 
-function applyWindowEffectsToWindow(targetWindow, currentConfig, overrideFrostedGlass) {
+function applyWindowEffectsToWindow(
+  targetWindow,
+  currentConfig,
+  overrideFrostedGlass,
+  { force = false, suppressNativeGlass = false } = {}
+) {
   if (!targetWindow || targetWindow.isDestroyed()) return;
-  const transparencyOptions = getWindowTransparencyOptions(currentConfig);
+  const transparencyOptions =
+    targetWindow === mainWindow
+      ? getEffectiveMainWindowTransparencyOptions(currentConfig)
+      : getWindowTransparencyOptions(currentConfig);
   const enabled = resolveFrostedGlassConfig(currentConfig, overrideFrostedGlass);
+  const previousState = windowEffectState.get(targetWindow) || {};
+  const nextState = { ...previousState };
+  const backgroundColor = suppressNativeGlass
+    ? OPAQUE_WINDOW_BACKGROUND_COLOR
+    : transparencyOptions.backgroundColor;
+  const applyBackgroundColor = () => {
+    if (!force && previousState.backgroundColor === backgroundColor) return;
+    try {
+      targetWindow.setBackgroundColor(backgroundColor);
+      nextState.backgroundColor = backgroundColor;
+    } catch (error) {
+      log.warn('Failed to set background color:', error.message);
+    }
+  };
 
   if (process.platform === 'win32' && typeof targetWindow.setBackgroundMaterial === 'function') {
-    try {
-      targetWindow.setBackgroundMaterial(enabled ? 'acrylic' : 'none');
-    } catch (error) {
-      log.warn('Failed to set background material:', error.message);
+    const backgroundMaterial = enabled && !suppressNativeGlass ? 'acrylic' : 'none';
+    let materialApplied = true;
+    // Entering stability mode must establish the opaque backing before acrylic is removed;
+    // leaving does the inverse so there is never a transparent compositor frame between them.
+    if (suppressNativeGlass) applyBackgroundColor();
+    if (force || previousState.backgroundMaterial !== backgroundMaterial) {
+      try {
+        targetWindow.setBackgroundMaterial(backgroundMaterial);
+        nextState.backgroundMaterial = backgroundMaterial;
+      } catch (error) {
+        materialApplied = false;
+        log.warn('Failed to set background material:', error.message);
+      }
     }
+    // If acrylic restoration fails after full-screen mode, retain the opaque fallback instead
+    // of exposing a transparent BrowserWindow with no native material behind it.
+    if (!suppressNativeGlass && materialApplied) applyBackgroundColor();
   } else if (process.platform === 'darwin') {
     if (typeof targetWindow.setVibrancy === 'function') {
       try {
@@ -1945,35 +2044,47 @@ function applyWindowEffectsToWindow(targetWindow, currentConfig, overrideFrosted
         log.warn('Failed to set visual effect state:', error.message);
       }
     }
+    applyBackgroundColor();
+  } else {
+    applyBackgroundColor();
   }
-
-  try {
-    targetWindow.setBackgroundColor(transparencyOptions.backgroundColor);
-  } catch (error) {
-    log.warn('Failed to set background color:', error.message);
-  }
+  windowEffectState.set(targetWindow, nextState);
 }
 
 function wireWindowEffectsRefresh(targetWindow, currentConfigProvider, overrideFrostedGlass) {
   if (!targetWindow || process.platform !== 'win32') return;
+  let refreshTimer = null;
 
-  const refreshEffects = () => {
+  const refreshEffects = (force = false) => {
     const currentConfig =
       typeof currentConfigProvider === 'function' ? currentConfigProvider() : currentConfigProvider;
-    applyWindowEffectsToWindow(targetWindow, currentConfig, overrideFrostedGlass);
+    const suppressNativeGlass =
+      targetWindow === mainWindow && mainWindowFullScreenEffectsSuppressed;
+    applyWindowEffectsToWindow(targetWindow, currentConfig, overrideFrostedGlass, {
+      force: force && !suppressNativeGlass,
+      suppressNativeGlass,
+    });
   };
 
-  const scheduleRefresh = () => {
-    refreshEffects();
-    setTimeout(refreshEffects, 50);
-    setTimeout(refreshEffects, 250);
+  const scheduleRefresh = (force = false) => {
+    if (refreshTimer !== null) clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(() => {
+      refreshTimer = null;
+      refreshEffects(force);
+    }, 120);
   };
 
-  ['focus', 'blur', 'show', 'restore', 'enter-full-screen', 'leave-full-screen'].forEach(
-    (eventName) => {
-      targetWindow.on(eventName, scheduleRefresh);
-    }
-  );
+  ['focus', 'blur', 'show', 'restore'].forEach((eventName) => {
+    targetWindow.on(eventName, () => scheduleRefresh(true));
+  });
+  ['enter-full-screen', 'leave-full-screen'].forEach((eventName) => {
+    targetWindow.on(eventName, () => scheduleRefresh(false));
+  });
+  targetWindow.once('closed', () => {
+    if (refreshTimer !== null) clearTimeout(refreshTimer);
+    refreshTimer = null;
+    windowEffectState.delete(targetWindow);
+  });
 }
 
 function applyDesktopPinWindowEffects(targetWindow, currentConfig) {
@@ -2087,7 +2198,6 @@ function focusMainWindow() {
   if (!mainWindow || mainWindow.isDestroyed()) {
     return { focused: false };
   }
-
   // A one-off raise: it clears full-screen windows the same way the popup hotkey does,
   // then settles back to the user's always-on-top preference.
   popupWindowPresenter.showAboveFullScreen(mainWindow, { keepElevated: false });
@@ -2095,22 +2205,30 @@ function focusMainWindow() {
   return { focused: mainWindow.isFocused() };
 }
 
+function recoverMainWindowPlacement() {
+  if (
+    usesCompositorOwnedPlacement ||
+    !canPersistMainWindowBounds(mainWindow) ||
+    mainWindowFullScreenController?.isActive() ||
+    mainWindowFullScreenController?.isTransitioning()
+  )
+    return;
+  const bounds = resolveWindowPlacement(
+    config,
+    electronScreen.getAllDisplays(),
+    electronScreen.getPrimaryDisplay().id
+  );
+  config.windowPosition = { x: bounds.x, y: bounds.y };
+  if (!config.fillMonitor) config.windowSize = { width: bounds.width, height: bounds.height };
+  const current = mainWindow.getBounds();
+  if (Object.keys(bounds).some((key) => bounds[key] !== current[key])) mainWindow.setBounds(bounds);
+}
+
 /**
  * Show the widget from the tray, going through the same raise the popup hotkey uses so it
  * cannot open behind a full-screen window either.
  */
 function showMainWindowFromTray() {
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    try {
-      // Restore the configured size before showing; a hide can leave a stale size behind.
-      mainWindow.setSize(
-        config.windowSize?.width || DEFAULT_WINDOW_SIZE.width,
-        config.windowSize?.height || DEFAULT_WINDOW_SIZE.height
-      );
-    } catch (error) {
-      log.warn('Failed to restore window size before showing:', error.message);
-    }
-  }
   return focusMainWindow();
 }
 
@@ -2118,6 +2236,14 @@ function showMainWindowFromTray() {
 function hideMainWindowToTray() {
   if (!mainWindow || mainWindow.isDestroyed()) return false;
   return popupWindowPresenter.hidePopup(mainWindow);
+}
+
+function applyMainWindowTaskbarPreference() {
+  if (!mainWindow || mainWindow.isDestroyed() || typeof mainWindow.setSkipTaskbar !== 'function') {
+    return false;
+  }
+  mainWindow.setSkipTaskbar(true);
+  return true;
 }
 
 /**
@@ -2457,6 +2583,19 @@ function syncDesktopPinWindowsWithConfig(options = {}) {
 
 function applyMainWindowSettingSideEffects(previousConfig, nextConfig) {
   if (mainWindow && !mainWindow.isDestroyed()) {
+    if (
+      previousConfig?.windowDisplayId !== nextConfig?.windowDisplayId ||
+      previousConfig?.fillMonitor !== nextConfig?.fillMonitor
+    ) {
+      // Discard delayed geometry from before the settings change.
+      if (windowStateSaveTimer) clearTimeout(windowStateSaveTimer);
+      windowStateSaveTimer = null;
+      pendingWindowBounds = null;
+      lastNormalMainWindowBounds = null;
+      if (mainWindowFullScreenController?.isActive()) setMainWindowFullScreenMode(false);
+      if (mainWindow.isMaximized()) mainWindow.unmaximize();
+      recoverMainWindowPlacement();
+    }
     try {
       if (previousConfig?.alwaysOnTop !== nextConfig?.alwaysOnTop) {
         applyAlwaysOnTopPreference();
@@ -2512,6 +2651,14 @@ async function applyRuntimeConfigSideEffects(previousConfig, nextConfig, source 
     previousConfig?.popupHotkeyHideOnRelease !== nextConfig?.popupHotkeyHideOnRelease ||
     previousConfig?.popupHotkeyToggleMode !== nextConfig?.popupHotkeyToggleMode;
   const failures = [];
+
+  if (previousConfig?.closeButtonAction !== nextConfig?.closeButtonAction) {
+    try {
+      applyMainWindowTaskbarPreference(nextConfig);
+    } catch (error) {
+      failures.push(`taskbar preference: ${error?.message || String(error)}`);
+    }
+  }
 
   try {
     if (usesPortalGlobalShortcuts && (entityHotkeysChanged || popupHotkeyChanged)) {
@@ -3527,6 +3674,18 @@ function resolveTrayIcon() {
  */
 function pruneConfig(target) {
   if (!target || typeof target !== 'object') return target;
+  if (Object.prototype.hasOwnProperty.call(target, 'windowDisplayId')) {
+    target.windowDisplayId = normalizeWindowDisplayId(target.windowDisplayId);
+  }
+  if (Object.prototype.hasOwnProperty.call(target, 'fillMonitor')) {
+    target.fillMonitor = target.fillMonitor === true;
+  }
+  if (Object.prototype.hasOwnProperty.call(target, 'startInTrayAtLogin')) {
+    target.startInTrayAtLogin = target.startInTrayAtLogin === true;
+  }
+  if (Object.prototype.hasOwnProperty.call(target, 'closeButtonAction')) {
+    target.closeButtonAction = normalizeCloseButtonAction(target.closeButtonAction);
+  }
   if (Object.prototype.hasOwnProperty.call(target, 'updateInterval')) {
     delete target.updateInterval;
   }
@@ -3604,7 +3763,11 @@ function loadConfig(options = {}) {
   const defaultConfig = {
     windowPosition: { x: 100, y: 100 },
     windowSize: { ...DEFAULT_WINDOW_SIZE },
+    windowDisplayId: null,
+    fillMonitor: false,
     alwaysOnTop: true,
+    closeButtonAction: 'minimize',
+    startInTrayAtLogin: false,
     opacity: 0.95,
     frostedGlass: true,
     homeAssistant: {
@@ -4985,20 +5148,22 @@ function initializeProfileSyncOnStartup() {
 /**
  * Apply or remove platform-appropriate frosted glass effects to the main window.
  *
- * Applies Windows acrylic or macOS vibrancy/visual-effect state and ensures the window background is transparent.
+ * Applies Windows acrylic or macOS vibrancy/visual-effect state and keeps the window background consistent with the platform visual policy.
  * If `override` is provided, its value determines whether effects are enabled; otherwise the function uses `config.frostedGlass`.
  * No-op if the main window is not available.
  * @param {boolean} [override] - When set, force enable (`true`) or disable (`false`) frosted glass effects.
  */
 function applyFrostedGlass(override) {
   if (!mainWindow) return;
-  applyWindowEffectsToWindow(mainWindow, config, override);
+  applyWindowEffectsToWindow(mainWindow, config, override, {
+    suppressNativeGlass: mainWindowFullScreenEffectsSuppressed,
+  });
 }
 
 /**
  * Create and configure the application's main BrowserWindow.
  *
- * Creates the primary transparent window, applies visual effects (frosted glass and safe opacity),
+ * Creates the primary window, applies visual effects (frosted glass and safe opacity),
  * loads the renderer (index.html), and attaches runtime behavior: persisting window position/size,
  * hiding to tray on minimize, preventing quit on close (hides instead unless the app is quitting),
  * and opening DevTools when the process was started with --dev.
@@ -5009,6 +5174,11 @@ function applyFrostedGlass(override) {
  */
 function createWindow() {
   log.info('Creating main window');
+  const startHidden =
+    !initialMainWindowCreated &&
+    app.isPackaged &&
+    shouldStartInTrayAtLogin({ argv: process.argv, enabled: config.startInTrayAtLogin });
+  initialMainWindowCreated = true;
   // Get the primary display's work area
   const primaryDisplay = electronScreen.getPrimaryDisplay();
   const { width: _width, height: _height } = primaryDisplay.workAreaSize;
@@ -5025,34 +5195,33 @@ function createWindow() {
     transparencyOptions,
   });
   const positionOptions = {};
+  let initialWindowSize = config.windowSize;
   if (!usesCompositorOwnedPlacement) {
-    // A saved position can point at a monitor that has since been unplugged, or at the empty
-    // space between monitors in a multi-display layout, and a window opened there never
-    // appears. Recover onto the nearest display instead of starting off-screen.
+    // Fit the full saved window inside the monitor containing most of it, recovering
+    // from disconnected monitors, changed scaling and positions across display seams.
     const savedPosition = config.windowPosition || {};
-    const placement = clampPositionToWorkAreas(
-      {
-        x: savedPosition.x,
-        y: savedPosition.y,
-        width: config.windowSize?.width,
-        height: config.windowSize?.height,
-      },
-      electronScreen.getAllDisplays().map((display) => display.workArea)
+    const placement = resolveWindowPlacement(
+      config,
+      electronScreen.getAllDisplays(),
+      primaryDisplay.id
     );
     if (placement.x !== savedPosition.x || placement.y !== savedPosition.y) {
       log.info(
-        `Saved window position ${savedPosition.x},${savedPosition.y} is not on a connected display; opening at ${placement.x},${placement.y}`
+        `Fitting saved window position ${savedPosition.x},${savedPosition.y} inside a display at ${placement.x},${placement.y}`
       );
       config.windowPosition = { x: placement.x, y: placement.y };
     }
+    initialWindowSize = { width: placement.width, height: placement.height };
+    if (!config.fillMonitor) config.windowSize = initialWindowSize;
     positionOptions.x = config.windowPosition.x;
     positionOptions.y = config.windowPosition.y;
   }
 
   const windowOptions = {
     ...positionOptions,
-    width: config.windowSize.width,
-    height: config.windowSize.height,
+    show: !startHidden,
+    width: initialWindowSize.width,
+    height: initialWindowSize.height,
     ...visualOptions,
     frame: false,
     // A frameless window still reports a title to the window manager, and a stable one is what
@@ -5063,6 +5232,9 @@ function createWindow() {
     skipTaskbar: true,
     resizable: true,
     movable: true,
+    minimizable: true,
+    maximizable: true,
+    fullscreenable: true,
     icon: iconPath,
     webPreferences: {
       preload: PRELOAD_SCRIPT_PATH,
@@ -5073,6 +5245,15 @@ function createWindow() {
   };
 
   mainWindow = new BrowserWindow(windowOptions);
+  lastNormalMainWindowBounds = mainWindow.getBounds();
+  mainWindowFullScreenController = createFullScreenController({
+    getWindow: () => mainWindow,
+    screen: electronScreen,
+    platform: process.platform,
+    onNormalBoundsCaptured: (bounds) => {
+      lastNormalMainWindowBounds = { ...bounds };
+    },
+  });
   hardenRendererNavigation(mainWindow);
   forwardRendererConsole(mainWindow.webContents, 'renderer');
   attachEditHandlers(mainWindow, Menu);
@@ -5097,6 +5278,9 @@ function createWindow() {
   mainWindow.webContents.on('did-finish-load', () => {
     emitProfileSyncStatus();
     pushConfigToRenderer();
+    if (START_MAIN_WINDOW_FULL_SCREEN && !isMainWindowFullScreenMode()) {
+      setMainWindowFullScreenMode(true);
+    }
     if (IS_SMOKE_TEST_MODE) {
       smokeTestRendererLoaded = true;
       maybeFinishSmokeTest();
@@ -5125,7 +5309,16 @@ function createWindow() {
   }
 
   const changeWin = () => {
+    if (
+      config.fillMonitor ||
+      mainWindowFullScreenController?.isActive() ||
+      mainWindowFullScreenController?.isTransitioning() ||
+      !canPersistMainWindowBounds(mainWindow)
+    ) {
+      return;
+    }
     const bounds = mainWindow.getBounds();
+    lastNormalMainWindowBounds = { ...bounds };
     pendingWindowBounds = bounds;
     if (windowStateSaveTimer) {
       clearTimeout(windowStateSaveTimer);
@@ -5136,6 +5329,7 @@ function createWindow() {
       pendingWindowBounds = null;
       if (!boundsToPersist) return;
       runBackgroundConfigMutation(() => {
+        if (config.fillMonitor) return;
         // Native Wayland compositors own placement and report coordinates that are not
         // stable app-controlled positions. Persisting those values during a resize makes
         // the next XWayland/X11 launch jump to compositor bookkeeping coordinates.
@@ -5157,10 +5351,42 @@ function createWindow() {
   // Save size when window is resized
   mainWindow.on('resized', changeWin);
 
-  // Hide to tray when minimizing
+  // Native maximise state can change from the title bar, Windows snapping or the
+  // screen-fill control. Keep the renderer button in sync with every path.
+  mainWindow.on('maximize', notifyMainWindowMaximizeStateChanged);
+  mainWindow.on('unmaximize', notifyMainWindowMaximizeStateChanged);
+
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    if (isFullScreenShortcut(input)) {
+      event.preventDefault();
+      setMainWindowFullScreenMode(!isMainWindowFullScreenMode());
+      return;
+    }
+    if (isMainWindowFullScreenMode() && isFullScreenExitShortcut(input)) {
+      event.preventDefault();
+      setMainWindowFullScreenMode(false);
+    }
+  });
+
+  mainWindow.on('enter-full-screen', () => {
+    mainWindowFullScreenController?.handleEnter();
+    setMainWindowFullScreenEffectsSuppressed(true);
+    if (tray && !tray.isDestroyed?.()) createTray();
+    notifyDesktopCompanionStateChanged();
+  });
+  mainWindow.on('leave-full-screen', () => {
+    mainWindowFullScreenController?.handleLeave();
+    scheduleMainWindowFullScreenEffectsRestore();
+    // Wait for the existing full-screen controller to restore normal geometry first.
+    setTimeout(() => recoverMainWindowPlacement(), 350);
+    if (tray && !tray.isDestroyed?.()) createTray();
+    notifyDesktopCompanionStateChanged();
+  });
+
+  // This is a tray widget: minimise and close-to-notification-area both hide the window.
   mainWindow.on('minimize', (event) => {
     event.preventDefault();
-    mainWindow.hide();
+    hideMainWindowToTray();
   });
 
   // Any hide (tray toggle, close to tray, minimize) ends a popup raise, so a later show
@@ -5180,23 +5406,108 @@ function createWindow() {
     requestOpportunisticProfileSync('focus');
   });
 
-  // Open DevTools in development mode
-  if (IS_DEV_MODE) {
+  // A preserved development profile is also used for long-running previews. Opening detached
+  // DevTools is therefore explicit, just like live reload, rather than an unavoidable side effect
+  // of keeping production credentials and settings isolated.
+  if (DEV_TOOLS_ENABLED) {
     mainWindow.webContents.openDevTools({ mode: 'detach' });
   }
 
-  // Minimize to tray on close
+  // The close button either performs the guarded application shutdown or hides to the tray.
   mainWindow.on('close', (e) => {
-    if (!isQuitting) {
-      e.preventDefault();
-      mainWindow.hide();
+    if (isQuitting) return;
+    e.preventDefault();
+    if (normalizeCloseButtonAction(config?.closeButtonAction) === 'quit') {
+      isQuitting = true;
+      app.quit();
+      return;
     }
+    hideMainWindowToTray();
   });
 
   // Handle window closed (when quitting)
   mainWindow.on('closed', () => {
+    if (mainWindowFullScreenEffectsRestoreTimer !== null) {
+      clearTimeout(mainWindowFullScreenEffectsRestoreTimer);
+      mainWindowFullScreenEffectsRestoreTimer = null;
+    }
+    mainWindowFullScreenEffectsSuppressed = false;
     mainWindow = null;
+    mainWindowFullScreenController = null;
   });
+}
+
+function isMainWindowFullScreenMode() {
+  return !!mainWindowFullScreenController?.isActive();
+}
+
+function getMainWindowFullScreenPresentationState() {
+  return {
+    isFullScreen: isMainWindowFullScreenMode(),
+    fullScreenStabilityMode: process.platform === 'win32' && mainWindowFullScreenEffectsSuppressed,
+  };
+}
+
+function notifyMainWindowFullScreenStateChanged() {
+  if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents?.isDestroyed?.()) return;
+  mainWindow.webContents.send(
+    'full-screen-state-changed',
+    getMainWindowFullScreenPresentationState()
+  );
+}
+
+function getMainWindowMaximizePresentationState() {
+  return {
+    isMaximized: !!(mainWindow && !mainWindow.isDestroyed?.() && mainWindow.isMaximized?.()),
+  };
+}
+
+function notifyMainWindowMaximizeStateChanged() {
+  if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents?.isDestroyed?.()) return;
+  mainWindow.webContents.send('maximize-state-changed', getMainWindowMaximizePresentationState());
+}
+
+function setMainWindowFullScreenEffectsSuppressed(suppressed) {
+  const nextSuppressed = process.platform === 'win32' && !!suppressed;
+  if (mainWindowFullScreenEffectsRestoreTimer !== null) {
+    clearTimeout(mainWindowFullScreenEffectsRestoreTimer);
+    mainWindowFullScreenEffectsRestoreTimer = null;
+  }
+  if (mainWindowFullScreenEffectsSuppressed === nextSuppressed) {
+    notifyMainWindowFullScreenStateChanged();
+    return;
+  }
+  mainWindowFullScreenEffectsSuppressed = nextSuppressed;
+  applyFrostedGlass();
+  notifyMainWindowFullScreenStateChanged();
+}
+
+function scheduleMainWindowFullScreenEffectsRestore() {
+  if (process.platform !== 'win32') {
+    notifyMainWindowFullScreenStateChanged();
+    return;
+  }
+  if (mainWindowFullScreenEffectsRestoreTimer !== null) {
+    clearTimeout(mainWindowFullScreenEffectsRestoreTimer);
+  }
+  mainWindowFullScreenEffectsRestoreTimer = setTimeout(() => {
+    mainWindowFullScreenEffectsRestoreTimer = null;
+    if (isMainWindowFullScreenMode()) return;
+    setMainWindowFullScreenEffectsSuppressed(false);
+  }, FULL_SCREEN_EFFECTS_RESTORE_DELAY_MS);
+  notifyMainWindowFullScreenStateChanged();
+}
+
+function setMainWindowFullScreenMode(enabled) {
+  const shouldEnable = !!enabled;
+  if (shouldEnable) setMainWindowFullScreenEffectsSuppressed(true);
+  const changed = !!mainWindowFullScreenController?.setEnabled(shouldEnable);
+  if (!changed && shouldEnable) {
+    setMainWindowFullScreenEffectsSuppressed(false);
+  } else if (!shouldEnable) {
+    scheduleMainWindowFullScreenEffectsRestore();
+  }
+  return changed;
 }
 
 // Save the monitor choice ('' = compositor decides) and relaunch through a fresh
@@ -5257,6 +5568,15 @@ function buildTrayContextMenu() {
         }).catch((error) => {
           log.warn('Failed to apply tray always-on-top setting:', error.message);
         });
+      },
+    },
+    {
+      label: mainT('Full Screen'),
+      type: 'checkbox',
+      checked: isMainWindowFullScreenMode(),
+      click: (menuItem) => {
+        if (!setMainWindowFullScreenMode(!!menuItem.checked)) return;
+        if (menuItem.checked) showMainWindowFromTray();
       },
     },
     {
@@ -5430,6 +5750,7 @@ function schedulePostWindowStartupTasks() {
       createTray();
     } catch (error) {
       log.warn('Tray startup initialization failed:', error.message);
+      if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) focusMainWindow();
       finishSmokeTest(false, `Tray startup initialization failed: ${error.message}`);
     }
 
@@ -6550,12 +6871,18 @@ ipcMain.handle(
 ipcMain.handle('get-window-state', (event) => {
   const sender = authorizeIpcSender(event, 'get-window-state');
   if (!sender) return rejectUnauthorizedIpc('get-window-state');
+  const fullScreenState = getMainWindowFullScreenPresentationState();
+  const maximizeState = getMainWindowMaximizePresentationState();
   // The temporary popup raise is not the user's preference, so report the stored value
   // while it is in effect.
   if (popupWindowPresenter.isElevated()) {
-    return { alwaysOnTop: !!config.alwaysOnTop };
+    return { alwaysOnTop: !!config.alwaysOnTop, ...fullScreenState, ...maximizeState };
   }
-  return { alwaysOnTop: !!(mainWindow && mainWindow.isAlwaysOnTop && mainWindow.isAlwaysOnTop()) };
+  return {
+    alwaysOnTop: !!(mainWindow && mainWindow.isAlwaysOnTop && mainWindow.isAlwaysOnTop()),
+    ...fullScreenState,
+    ...maximizeState,
+  };
 });
 
 ipcMain.handle('choose-profile-sync-folder', async (event, provider) => {
@@ -7198,14 +7525,37 @@ ipcMain.handle(
   })
 );
 
+ipcMain.handle('get-window-displays', (event) => {
+  const sender = authorizeIpcSender(event, 'get-window-displays');
+  if (!sender) return rejectUnauthorizedIpc('get-window-displays');
+  const primaryId = electronScreen.getPrimaryDisplay().id;
+  return {
+    supported: !usesCompositorOwnedPlacement,
+    displays: electronScreen
+      .getAllDisplays()
+      .sort((a, b) => a.bounds.x - b.bounds.x || a.bounds.y - b.bounds.y)
+      .map((display) => ({
+        id: String(display.id),
+        label: display.label || '',
+        primary: display.id === primaryId,
+        width: display.bounds.width,
+        height: display.bounds.height,
+      })),
+  };
+});
+
 // Start at login IPC handlers
 ipcMain.handle('get-login-item-settings', (event) => {
   const sender = authorizeIpcSender(event, 'get-login-item-settings');
   if (!sender) return rejectUnauthorizedIpc('get-login-item-settings');
+  if (!app.isPackaged || IS_SMOKE_TEST_MODE) return { openAtLogin: false, supported: false };
   try {
     if (process.platform === 'win32') {
       const startupTarget = getWindowsStartupRegistrationTarget();
-      const legacyStartupTarget = getWindowsStartupRegistrationTarget({ quotePath: false });
+      const legacyStartupTarget = getWindowsStartupRegistrationTarget({
+        quotePath: false,
+        legacyArgs: true,
+      });
       const settings = app.getLoginItemSettings(getWindowsStartupLookupOptions(startupTarget));
       let openAtLogin = isWindowsLoginItemEnabled(settings, startupTarget.executablePath);
       let legacySettings = null;
@@ -7245,6 +7595,9 @@ ipcMain.handle('get-login-item-settings', (event) => {
 ipcMain.handle('set-login-item-settings', (event, openAtLogin) => {
   const sender = authorizeIpcSender(event, 'set-login-item-settings');
   if (!sender) return rejectUnauthorizedIpc('set-login-item-settings');
+  if (!app.isPackaged || IS_SMOKE_TEST_MODE) {
+    return { success: true, openAtLogin: false, supported: false };
+  }
   try {
     const normalizedOpenAtLogin = !!openAtLogin;
     if (process.platform === 'linux') {
@@ -7354,12 +7707,43 @@ ipcMain.handle('minimize-window', (event) => {
   const sender = authorizeIpcSender(event, 'minimize-window');
   if (!sender) return rejectUnauthorizedIpc('minimize-window');
   if (mainWindow) {
-    if (usesCompositorOwnedPlacement) {
-      hideMainWindowToTray();
-    } else {
-      mainWindow.minimize();
-    }
+    hideMainWindowToTray();
   }
+});
+
+ipcMain.handle('close-window', (event) => {
+  const sender = authorizeIpcSender(event, 'close-window');
+  if (!sender) return rejectUnauthorizedIpc('close-window');
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return { success: false, error: 'Main window is unavailable.' };
+  }
+  mainWindow.close();
+  return { success: true };
+});
+
+ipcMain.handle('toggle-maximize', (event) => {
+  const sender = authorizeIpcSender(event, 'toggle-maximize');
+  if (!sender) return rejectUnauthorizedIpc('toggle-maximize');
+  if (
+    mainWindowFullScreenController?.isActive() ||
+    mainWindowFullScreenController?.isTransitioning()
+  ) {
+    return { success: false, error: 'Exit full-screen mode before maximising the window.' };
+  }
+  return toggleWindowMaximized(mainWindow);
+});
+
+ipcMain.handle('toggle-full-screen', (event) => {
+  const sender = authorizeIpcSender(event, 'toggle-full-screen');
+  if (!sender) return rejectUnauthorizedIpc('toggle-full-screen');
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return { success: false, error: 'Main window is unavailable.' };
+  }
+  const isFullScreen = !isMainWindowFullScreenMode();
+  if (!setMainWindowFullScreenMode(isFullScreen)) {
+    return { success: false, error: 'Unable to change full-screen mode.' };
+  }
+  return { success: true, ...getMainWindowFullScreenPresentationState() };
 });
 
 ipcMain.handle('focus-window', (event) => {
@@ -7383,6 +7767,12 @@ ipcMain.handle('check-for-updates', async (event) => {
 
 async function checkForUpdatesForCurrentPackage() {
   if (!app.isPackaged) return { status: 'dev' };
+  if (IS_LOCAL_BUILD) {
+    return {
+      status: 'local',
+      message: mainT('Automatic updates are disabled for this local build.'),
+    };
+  }
   if (isPortableBuild()) {
     return checkPortableUpdate();
   }
@@ -7405,7 +7795,7 @@ ipcMain.handle('quit-and-install', async (event) => {
   if (!app.isPackaged) {
     return { success: false, error: 'Update install is only available in packaged builds' };
   }
-  if (isPortableBuild() || !supportsAutoUpdater(process.platform, process.env)) {
+  if (IS_LOCAL_BUILD || isPortableBuild() || !supportsAutoUpdater(process.platform, process.env)) {
     return { success: false, error: 'In-app updates are not supported for this package' };
   }
   if (!autoUpdateDownloaded) {
@@ -8961,7 +9351,7 @@ function selectPortableRelease(releases, allowPrerelease) {
 }
 
 async function fetchGitHubUpdateRelease() {
-  const repo = 'Robertg761/HA-Desktop-Widget';
+  const repo = GITHUB_REPOSITORY;
   const allowPrerelease = !!getUpdatesConfig().allowPrerelease;
   const apiUrl = allowPrerelease
     ? `https://api.github.com/repos/${repo}/releases?per_page=20`
@@ -9100,6 +9490,10 @@ async function checkPortableUpdate() {
 // App event handlers
 function setupAutoUpdates() {
   if (!app.isPackaged) return;
+  if (IS_LOCAL_BUILD) {
+    log.info('Local build detected; automatic updates are disabled.');
+    return;
+  }
   if (isPortableBuild()) {
     log.info('Portable build detected; auto-updates are disabled.');
     return;
@@ -9167,16 +9561,22 @@ function freezePendingWindowBoundsForShutdown() {
 function capturePendingWindowBoundsForShutdown() {
   let changed = false;
   freezePendingWindowBoundsForShutdown();
-  if (pendingWindowBounds) {
+  const mainWindowBoundsToPersist =
+    !mainWindowFullScreenController?.isActive() &&
+    !mainWindowFullScreenController?.isTransitioning() &&
+    canPersistMainWindowBounds(mainWindow)
+      ? pendingWindowBounds
+      : lastNormalMainWindowBounds;
+  if (mainWindowBoundsToPersist && !config.fillMonitor) {
     if (!usesCompositorOwnedPlacement) {
       config.windowPosition = {
-        x: pendingWindowBounds.x,
-        y: pendingWindowBounds.y,
+        x: mainWindowBoundsToPersist.x,
+        y: mainWindowBoundsToPersist.y,
       };
     }
     config.windowSize = {
-      width: pendingWindowBounds.width,
-      height: pendingWindowBounds.height,
+      width: mainWindowBoundsToPersist.width,
+      height: mainWindowBoundsToPersist.height,
     };
     pendingWindowBounds = null;
     changed = true;
@@ -9352,7 +9752,7 @@ app
 
     // Set app ID for Windows (helps with icon caching and taskbar behavior)
     if (process.platform === 'win32') {
-      app.setAppUserModelId('com.github.robertg761.hadesktopwidget');
+      app.setAppUserModelId(pkg.appId || 'com.github.robertg761.hadesktopwidget');
     }
 
     // skipTaskbar is a no-op on macOS, so hiding the Dock icon is what gives this
@@ -9389,6 +9789,16 @@ app
     }
 
     createWindow();
+    for (const displayEvent of ['display-added', 'display-removed', 'display-metrics-changed']) {
+      electronScreen.on(displayEvent, () => {
+        if (isQuitting) return;
+        // A changed resolution, scaling or taskbar must not strand the widget.
+        runBackgroundConfigMutation(() => {
+          recoverMainWindowPlacement();
+          saveConfig();
+        }, 'display layout change');
+      });
+    }
     setupAutoUpdates();
     schedulePostWindowStartupTasks();
   })

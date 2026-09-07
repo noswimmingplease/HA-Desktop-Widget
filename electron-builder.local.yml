@@ -1,0 +1,11 @@
+extends: ./electron-builder.yml
+
+# Replace the normal per-user installation while retaining its application and
+# profile identity. Runtime update checks use this marker to keep a customised
+# local build from being replaced by an upstream release.
+directories:
+  buildResources: build
+  output: dist-local
+
+extraMetadata:
+  localBuild: true

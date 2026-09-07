@@ -646,6 +646,20 @@ body.linux-performance-mode {
   --glass-blur-light: 0px;
 }
 
+/*
+ * Native Windows acrylic becomes unstable when Chromium composites a full-screen
+ * transparent window containing dozens of nested backdrop filters. The main process
+ * temporarily replaces acrylic with an opaque background in this mode; removing only
+ * the redundant CSS blur layers keeps the normal windowed glass appearance unchanged.
+ */
+body.frosted-glass.fullscreen-stability-mode {
+  --bg-blur: 0px;
+  --glass-blur-strong: 0px;
+  --glass-blur-medium: 0px;
+  --glass-blur-light: 0px;
+  background: rgb(var(--window-bg-rgb, 40, 40, 45)) !important;
+}
+
 /* Status cards in frosted glass mode */
 body.frosted-glass .status-card {
   background: var(--glass-surface);
@@ -663,15 +677,15 @@ body.frosted-glass .media-tile {
 
 /* Control items in frosted glass mode */
 body.frosted-glass .control-item {
-  background: var(--glass-surface);
+  background: var(--quick-access-section-tile-bg, var(--glass-surface));
   backdrop-filter: blur(var(--glass-blur-medium)) saturate(180%);
   -webkit-backdrop-filter: blur(var(--glass-blur-medium)) saturate(180%);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--quick-access-section-tile-border, rgba(255, 255, 255, 0.06));
 }
 
 body.frosted-glass .control-item:hover {
-  background: var(--glass-elevated);
-  border-color: rgba(255, 255, 255, 0.12);
+  background: var(--quick-access-section-tile-hover-bg, var(--glass-elevated));
+  border-color: var(--quick-access-section-tile-hover-border, rgba(255, 255, 255, 0.12));
 }
 
 /* Section headers in frosted glass mode */
@@ -750,6 +764,8 @@ html.desktop-pin-mode body {
   justify-content: space-between;
   align-items: center;
   padding: 8px 12px;
+  app-region: drag;
+  -webkit-app-region: drag;
   background: var(--glass-elevated);
   border-bottom: 1px solid var(--border-color);
   backdrop-filter: blur(var(--blur-xl)) saturate(180%);
@@ -2656,6 +2672,7 @@ body.desktop-pin-mode .desktop-pin-drag-region::before {
   display: flex;
   align-items: center;
   gap: 8px;
+  app-region: drag;
   -webkit-app-region: drag;
   flex: 1;
 }
@@ -2679,6 +2696,7 @@ body.desktop-pin-mode .desktop-pin-drag-region::before {
   flex-shrink: 0;
   margin-left: 8px;
   box-shadow: 0 0 4px var(--danger);
+  app-region: no-drag;
   -webkit-app-region: no-drag;
   cursor: help;
   animation: pulseDisconnected 2s ease-in-out infinite;
@@ -2783,6 +2801,7 @@ body.desktop-pin-mode .desktop-pin-drag-region::before {
 .header-controls {
   display: flex;
   gap: 4px;
+  app-region: no-drag;
   -webkit-app-region: no-drag;
 }
 
@@ -2806,6 +2825,13 @@ body.desktop-pin-mode .desktop-pin-drag-region::before {
   opacity: 1;
   transform: scale(1.15);
   box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+}
+
+.control-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+  transform: none;
+  box-shadow: none;
 }
 
 .notification-bell-btn {
@@ -3549,6 +3575,122 @@ body.first-run-active .widget-content > * {
   gap: 6px;
   align-items: stretch;
   grid-auto-flow: dense; /* tighter packing */
+}
+
+#quick-controls.quick-access-rooms {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-4);
+  align-items: start;
+  grid-auto-flow: row;
+}
+
+#quick-controls.quick-access-rooms.quick-access-masonry {
+  grid-auto-flow: dense;
+  grid-auto-rows: 1px;
+}
+
+.quick-access-room {
+  --quick-access-pastel-rgb: var(--accent-rgb);
+  min-width: 0;
+  align-self: start;
+  position: relative;
+  overflow: hidden;
+  padding: var(--space-2);
+  border: 1px solid rgba(var(--quick-access-pastel-rgb), 0.34);
+  border-radius: var(--radius-lg);
+  background:
+    linear-gradient(
+      145deg,
+      rgba(var(--quick-access-pastel-rgb), 0.13),
+      rgba(var(--quick-access-pastel-rgb), 0.035) 52%,
+      transparent 78%
+    ),
+    color-mix(in srgb, var(--glass-surface) 88%, rgb(var(--quick-access-pastel-rgb)) 12%);
+  box-shadow:
+    0 8px 22px rgba(0, 0, 0, 0.13),
+    inset 0 1px 0 rgba(255, 255, 255, 0.055);
+}
+
+.quick-access-room::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: 1;
+  height: 3px;
+  background: rgb(var(--quick-access-pastel-rgb));
+  box-shadow: 0 0 14px rgba(var(--quick-access-pastel-rgb), 0.38);
+  pointer-events: none;
+}
+
+.quick-access-room-header {
+  margin: 0 0 var(--space-2);
+  padding: var(--space-1) var(--space-1) var(--space-2);
+  border-bottom: 1px solid var(--border-color);
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.3;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.quick-access-room-device-icon {
+  display: inline-grid;
+  flex: 0 0 24px;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border: 1px solid rgba(var(--quick-access-pastel-rgb), 0.42);
+  border-radius: var(--radius-md);
+  color: rgb(var(--quick-access-pastel-rgb));
+  background: rgba(var(--quick-access-pastel-rgb), 0.14);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.quick-access-room-device-icon svg {
+  width: 15px;
+  height: 15px;
+  fill: currentColor;
+}
+
+.quick-access-room-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quick-access-room-count {
+  display: inline-flex;
+  flex: 0 0 auto;
+  min-width: 22px;
+  height: 22px;
+  margin-left: auto;
+  padding: 0 6px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(var(--quick-access-pastel-rgb), 0.3);
+  border-radius: var(--radius-full);
+  color: rgba(var(--quick-access-pastel-rgb), 0.92);
+  background: rgba(var(--quick-access-pastel-rgb), 0.1);
+  font-size: var(--font-size-2xs);
+  font-variant-numeric: tabular-nums;
+}
+
+#quick-controls.quick-access-rooms .quick-access-room-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+@media (max-width: 360px) {
+  #quick-controls.quick-access-rooms {
+    grid-template-columns: 1fr;
+  }
+
+  #quick-controls.quick-access-rooms .quick-access-room-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .control-item {
@@ -6214,6 +6356,65 @@ body.first-run-active .widget-content > * {
   box-sizing: border-box;
 }
 
+/* Each room/device receives a stable accent from its ID and inferred device kind.
+   The panel owns the visual identity, so child tiles retain only a restrained tint;
+   semantic entity-state colours and the optional active glow still take precedence. */
+#quick-controls.quick-access-rooms .quick-access-room {
+  --quick-access-section-tile-bg: color-mix(
+    in srgb,
+    var(--glass-surface) 84%,
+    rgb(var(--quick-access-pastel-rgb)) 16%
+  );
+  --quick-access-section-tile-hover-bg: color-mix(
+    in srgb,
+    var(--glass-elevated) 75%,
+    rgb(var(--quick-access-pastel-rgb)) 25%
+  );
+  --quick-access-section-tile-border: rgba(var(--quick-access-pastel-rgb), 0.3);
+  --quick-access-section-tile-hover-border: rgba(var(--quick-access-pastel-rgb), 0.52);
+  --quick-access-section-sparkline-rgb: var(--quick-access-pastel-rgb);
+}
+
+:where(#quick-controls.quick-access-rooms .quick-access-room) .quick-access-room-header {
+  border-bottom-color: rgba(var(--quick-access-pastel-rgb), 0.56);
+  background-image: linear-gradient(
+    90deg,
+    rgba(var(--quick-access-pastel-rgb), 0.22),
+    transparent 78%
+  );
+}
+
+:where(#quick-controls.quick-access-rooms .quick-access-room) .control-item {
+  border-color: rgba(var(--quick-access-pastel-rgb), 0.3);
+  background-color: color-mix(
+    in srgb,
+    var(--surface-2) 84%,
+    rgb(var(--quick-access-pastel-rgb)) 16%
+  );
+}
+
+:where(#quick-controls.quick-access-rooms .quick-access-room) .control-item:where(:hover) {
+  border-color: rgba(var(--quick-access-pastel-rgb), 0.52);
+  background-color: color-mix(
+    in srgb,
+    var(--surface-hover) 75%,
+    rgb(var(--quick-access-pastel-rgb)) 25%
+  );
+}
+
+:where(body.theme-light #quick-controls.quick-access-rooms .quick-access-room) .control-item {
+  border-color: color-mix(
+    in srgb,
+    var(--border-color) 30%,
+    rgb(var(--quick-access-pastel-rgb)) 70%
+  );
+  background-color: color-mix(
+    in srgb,
+    var(--surface-2) 76%,
+    rgb(var(--quick-access-pastel-rgb)) 24%
+  );
+}
+
 /* Tiles are styled the same whatever they are, except for the opt-out accent glow that
    marks a Quick Access tile whose entity is currently on (Personalization > Window
    Effects). Read-only tiles never carry data-active, so they never glow. */
@@ -6838,7 +7039,7 @@ body.density-compact #quick-controls .camera-preview-tile .camera-tile-preview-s
   gap: 6px;
 }
 
-#quick-controls .control-item.sensor-numeric-entity .control-info {
+#quick-controls .control-item.sensor-chart-entity .control-info {
   position: relative;
   z-index: 1;
   padding-bottom: 18px;
@@ -6870,16 +7071,17 @@ body.density-compact #quick-controls .camera-preview-tile .camera-tile-preview-s
 }
 
 #quick-controls .control-item.sensor-numeric-entity .control-sensor-value {
+  flex: 0 0 auto;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow: visible;
+  text-overflow: clip;
   font-size: var(--font-size-2xl);
   font-weight: 800;
   line-height: 1;
 }
 
 #quick-controls .control-item.sensor-numeric-entity .control-sensor-unit {
-  flex-shrink: 0;
+  flex: 0 0 auto;
   font-size: var(--font-size-sm);
   font-weight: 700;
   line-height: 1;
@@ -6892,7 +7094,7 @@ body.density-compact #quick-controls .camera-preview-tile .camera-tile-preview-s
   right: 4px;
   bottom: 0;
   height: 22px;
-  color: rgba(var(--accent-rgb), 0.72);
+  color: rgba(var(--quick-access-section-sparkline-rgb, var(--accent-rgb)), 0.72);
   opacity: 0.64;
   pointer-events: none;
 }
@@ -6902,7 +7104,9 @@ body.density-compact #quick-controls .camera-preview-tile .camera-tile-preview-s
   width: 100%;
   height: 100%;
   overflow: visible;
-  filter: drop-shadow(0 1px 3px rgba(var(--accent-rgb), 0.2));
+  filter: drop-shadow(
+    0 1px 3px rgba(var(--quick-access-section-sparkline-rgb, var(--accent-rgb)), 0.2)
+  );
 }
 
 /* --- Comparison graph tile --- */
@@ -12016,7 +12220,7 @@ body.density-compact #quick-controls .camera-preview-tile .camera-tile-preview-s
 }
 
 /* High contrast mode support */
-@media (prefers-contrast: high) {
+@media (prefers-contrast: more) {
   :root {
     --border-color: rgba(255, 255, 255, 0.3);
     --border-hover: rgba(255, 255, 255, 0.5);
@@ -12033,6 +12237,81 @@ body.density-compact #quick-controls .camera-preview-tile .camera-tile-preview-s
   .close-btn,
   .media-tile-btn {
     border-width: 2px;
+  }
+
+  :where(#quick-controls.quick-access-rooms .quick-access-room) .quick-access-room-header {
+    border-bottom-color: var(--text-primary);
+    background-image: none;
+  }
+
+  :where(#quick-controls.quick-access-rooms .quick-access-room) .control-item {
+    border-color: var(--text-primary);
+    background-color: #1e1e22;
+  }
+
+  :where(body.theme-light #quick-controls.quick-access-rooms .quick-access-room) .control-item {
+    background-color: #fff;
+  }
+}
+
+body.high-contrast :where(#quick-controls.quick-access-rooms .quick-access-room-header) {
+  border-bottom-color: var(--text-primary);
+  background-image: none;
+}
+
+body.high-contrast #quick-controls.quick-access-rooms .quick-access-room {
+  --quick-access-section-tile-bg: #1e1e22;
+  --quick-access-section-tile-hover-bg: #1e1e22;
+  --quick-access-section-tile-border: var(--text-primary);
+  --quick-access-section-tile-hover-border: var(--text-primary);
+  --quick-access-section-sparkline-rgb: var(--accent-rgb);
+  border-width: 2px;
+  border-color: var(--text-primary);
+  background: #1e1e22;
+  box-shadow: none;
+}
+
+body.theme-light.high-contrast #quick-controls.quick-access-rooms .quick-access-room {
+  --quick-access-section-tile-bg: #fff;
+  --quick-access-section-tile-hover-bg: #fff;
+  background: #fff;
+}
+
+body.high-contrast #quick-controls.quick-access-rooms .control-item {
+  border-width: 2px;
+  border-color: var(--text-primary);
+  background-color: #1e1e22;
+  color: var(--text-primary);
+}
+
+body.theme-light.high-contrast #quick-controls.quick-access-rooms .control-item {
+  background-color: #fff;
+}
+
+@media (forced-colors: active) {
+  #quick-controls.quick-access-rooms .quick-access-room,
+  #quick-controls.quick-access-rooms .quick-access-room-header,
+  #quick-controls.quick-access-rooms .control-item {
+    --quick-access-section-tile-bg: Canvas;
+    --quick-access-section-tile-hover-bg: Canvas;
+    --quick-access-section-tile-border: CanvasText;
+    --quick-access-section-tile-hover-border: CanvasText;
+    border-color: CanvasText;
+    background: Canvas;
+    color: CanvasText;
+  }
+
+  #quick-controls.quick-access-rooms .quick-access-room-device-icon,
+  #quick-controls.quick-access-rooms .quick-access-room-count {
+    border-color: CanvasText;
+    background: Canvas;
+    color: CanvasText;
+  }
+
+  body.active-tile-glow #quick-controls .control-item[data-active='true'] {
+    border-color: Highlight;
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
   }
 }
 
@@ -12517,4 +12796,13 @@ label.disabled {
 
 .donate-secure-note {
   margin-top: var(--space-3);
+}
+
+/* Keep this final so later component rules cannot re-enable expensive full-screen blur. */
+body.fullscreen-stability-mode,
+body.fullscreen-stability-mode *,
+body.fullscreen-stability-mode #settings-modal,
+body.fullscreen-stability-mode #settings-modal * {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
 }

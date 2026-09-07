@@ -90,8 +90,12 @@ describe('preload Electron API', () => {
       ['setAlwaysOnTop', [true], 'set-always-on-top', [true]],
       ['getWindowState', [], 'get-window-state', []],
       ['getLoginItemSettings', [], 'get-login-item-settings', []],
+      ['getWindowDisplays', [], 'get-window-displays', []],
       ['setLoginItemSettings', [true], 'set-login-item-settings', [true]],
       ['minimizeWindow', [], 'minimize-window', []],
+      ['closeWindow', [], 'close-window', []],
+      ['toggleMaximize', [], 'toggle-maximize', []],
+      ['toggleFullScreen', [], 'toggle-full-screen', []],
       ['focusWindow', [], 'focus-window', []],
       ['focusDesktopPin', ['light.office'], 'focus-desktop-pin', ['light.office']],
       ['restartApp', [], 'restart-app', []],
@@ -165,6 +169,8 @@ describe('preload Electron API', () => {
       ['onDesktopPinSnapshotNeeded', 'desktop-pin-snapshot-needed'],
       ['onDesktopPinActionRequested', 'desktop-pin-action-requested'],
       ['onEntityTileHotkeyRequested', 'entity-tile-hotkey-requested'],
+      ['onMaximizeStateChanged', 'maximize-state-changed'],
+      ['onFullScreenStateChanged', 'full-screen-state-changed'],
       ['onDesktopCompanionStateChanged', 'desktop-companion-state-changed'],
     ];
 

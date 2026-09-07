@@ -86,6 +86,8 @@ const eventListeners = {
   desktopPinSnapshotNeeded: [],
   desktopPinActionRequested: [],
   entityTileHotkeyRequested: [],
+  maximizeStateChanged: [],
+  fullScreenStateChanged: [],
   desktopCompanionStateChanged: [],
 };
 
@@ -249,6 +251,15 @@ function createMockElectronAPI() {
     setOpacity: jest.fn((_opacity) => Promise.resolve()),
     setAlwaysOnTop: jest.fn((_value) => Promise.resolve()),
     getLoginItemSettings: jest.fn(() => Promise.resolve({ openAtLogin: false })),
+    getWindowDisplays: jest.fn(() =>
+      Promise.resolve({
+        supported: true,
+        displays: [
+          { id: '1', label: 'Test display', primary: true, width: 1920, height: 1080 },
+          { id: '2', label: 'Portrait display', primary: false, width: 1080, height: 1920 },
+        ],
+      })
+    ),
     setLoginItemSettings: jest.fn((openAtLogin) =>
       Promise.resolve({ success: true, openAtLogin: !!openAtLogin })
     ),
@@ -258,9 +269,15 @@ function createMockElectronAPI() {
         opacity: mockConfig.opacity,
         position: mockConfig.windowPosition,
         size: mockConfig.windowSize,
+        isMaximized: false,
+        isFullScreen: false,
+        fullScreenStabilityMode: false,
       })
     ),
     minimizeWindow: jest.fn(() => Promise.resolve()),
+    closeWindow: jest.fn(() => Promise.resolve({ success: true })),
+    toggleMaximize: jest.fn(() => Promise.resolve({ success: true, isMaximized: true })),
+    toggleFullScreen: jest.fn(() => Promise.resolve({ success: true, isFullScreen: true })),
     focusWindow: jest.fn(() => Promise.resolve()),
     focusDesktopPin: jest.fn((_entityId) => Promise.resolve({ focused: true, exists: true })),
     pinEntityToDesktop: jest.fn((_entityId) =>
@@ -447,6 +464,20 @@ function createMockElectronAPI() {
         if (index > -1) eventListeners.entityTileHotkeyRequested.splice(index, 1);
       };
     }),
+    onMaximizeStateChanged: jest.fn((callback) => {
+      eventListeners.maximizeStateChanged.push(callback);
+      return () => {
+        const index = eventListeners.maximizeStateChanged.indexOf(callback);
+        if (index > -1) eventListeners.maximizeStateChanged.splice(index, 1);
+      };
+    }),
+    onFullScreenStateChanged: jest.fn((callback) => {
+      eventListeners.fullScreenStateChanged.push(callback);
+      return () => {
+        const index = eventListeners.fullScreenStateChanged.indexOf(callback);
+        if (index > -1) eventListeners.fullScreenStateChanged.splice(index, 1);
+      };
+    }),
     onDesktopCompanionStateChanged: jest.fn((callback) => {
       eventListeners.desktopCompanionStateChanged.push(callback);
       return () => {
@@ -552,6 +583,8 @@ function resetMockElectronAPI() {
   eventListeners.desktopPinUpdate = [];
   eventListeners.desktopPinActionRequested = [];
   eventListeners.entityTileHotkeyRequested = [];
+  eventListeners.maximizeStateChanged = [];
+  eventListeners.fullScreenStateChanged = [];
   eventListeners.desktopCompanionStateChanged = [];
 }
 

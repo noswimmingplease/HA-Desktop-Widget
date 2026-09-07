@@ -17,6 +17,8 @@ function isUsableWorkArea(workArea) {
     !!workArea &&
     Number.isFinite(Number(workArea.x)) &&
     Number.isFinite(Number(workArea.y)) &&
+    Number.isFinite(Number(workArea.width)) &&
+    Number.isFinite(Number(workArea.height)) &&
     Number(workArea.width) > 0 &&
     Number(workArea.height) > 0
   );
@@ -87,7 +89,73 @@ function clampPositionToWorkAreas(bounds = {}, workAreas = []) {
   };
 }
 
+/** Fit the entire window onto the display containing most of its saved area. */
+function clampWindowBoundsToWorkAreas(bounds = {}, workAreas = []) {
+  const target = {
+    x: toFiniteInteger(bounds.x, 0),
+    y: toFiniteInteger(bounds.y, 0),
+    width: Math.max(1, toFiniteInteger(bounds.width, FALLBACK_WORK_AREA.width)),
+    height: Math.max(1, toFiniteInteger(bounds.height, FALLBACK_WORK_AREA.height)),
+  };
+  const areas = (workAreas || []).filter(isUsableWorkArea).map((area) => ({
+    x: Math.round(Number(area.x)),
+    y: Math.round(Number(area.y)),
+    width: Math.max(1, Math.floor(Number(area.width))),
+    height: Math.max(1, Math.floor(Number(area.height))),
+  }));
+  if (!areas.length) return target;
+  const overlap = (area) =>
+    Math.max(0, overlapAmount(target.x, target.width, area.x, area.width)) *
+    Math.max(0, overlapAmount(target.y, target.height, area.y, area.height));
+  const display = areas.reduce((best, area) => {
+    const difference = overlap(area) - overlap(best);
+    return difference > 0 ||
+      (difference === 0 &&
+        distanceBetweenCenters(target, area) < distanceBetweenCenters(target, best))
+      ? area
+      : best;
+  });
+  const width = Math.min(target.width, display.width);
+  const height = Math.min(target.height, display.height);
+  return {
+    x: Math.min(Math.max(target.x, display.x), display.x + display.width - width),
+    y: Math.min(Math.max(target.y, display.y), display.y + display.height - height),
+    width,
+    height,
+  };
+}
+
+function normalizeWindowDisplayId(value) {
+  if (value === 'primary') return value;
+  const id = typeof value === 'string' || typeof value === 'number' ? String(value).trim() : '';
+  return /^-?\d{1,20}$/.test(id) ? id : null;
+}
+
+/** Resolve a local monitor preference without overwriting the saved windowed size. */
+function resolveWindowPlacement(config = {}, displays = [], primaryDisplayId) {
+  const bounds = { ...config.windowPosition, ...config.windowSize };
+  const available = displays.filter((display) => isUsableWorkArea(display?.workArea));
+  if (!available.length) return clampWindowBoundsToWorkAreas(bounds, []);
+  const preferredId = normalizeWindowDisplayId(config.windowDisplayId);
+  const primary = available.find((display) => display.id === primaryDisplayId) || available[0];
+  // Keep a disconnected monitor's ID in config so reconnecting it restores the preference.
+  const preferred = preferredId
+    ? available.find((display) => String(display.id) === preferredId) || primary
+    : null;
+  const fitted = clampWindowBoundsToWorkAreas(
+    bounds,
+    (preferred ? [preferred] : available).map((display) => display.workArea)
+  );
+  if (config.fillMonitor !== true) return fitted;
+  const target =
+    preferred || available.find((display) => boundsOverlapWorkArea(fitted, display.workArea));
+  return clampWindowBoundsToWorkAreas(target.workArea, [target.workArea]);
+}
+
 module.exports = {
+  normalizeWindowDisplayId,
+  resolveWindowPlacement,
+  clampWindowBoundsToWorkAreas,
   MIN_VISIBLE_OVERLAP_PX,
   boundsOverlapWorkArea,
   boundsVisibleOnAnyWorkArea,

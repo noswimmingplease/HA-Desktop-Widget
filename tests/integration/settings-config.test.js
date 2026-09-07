@@ -231,6 +231,10 @@ function createSettingsModalDOM() {
         Start at login
       </label>
 
+      <div id="window-display-settings" hidden>
+        <select id="window-display-id"></select>
+        <input type="checkbox" id="fill-monitor" />
+      </div>
       <label for="allow-prerelease-updates">
         <input type="checkbox" id="allow-prerelease-updates" />
         Receive beta updates
@@ -253,6 +257,10 @@ function createSettingsModalDOM() {
       <span id="opacity-value">90</span>
 
       <label for="density-select">Layout density</label>
+      <select id="quick-access-presentation">
+        <option value="tabs">Tabbed pages</option>
+        <option value="rooms">Device panels</option>
+      </select>
       <select id="density-select">
         <option value="comfortable">Comfortable</option>
         <option value="compact">Compact</option>
@@ -463,6 +471,21 @@ describe('Settings + Config Integration', () => {
   const connectionStatus = require('../../src/connection-status.js');
   const state = require('../../src/state.js').default;
   const profileSyncFixture = JSON.parse(JSON.stringify(sampleConfig.profileSync));
+  test('handles profile-sync status arriving before the initial configuration', () => {
+    state.setConfig(null);
+    expect(() =>
+      settings.handleProfileSyncStatusUpdate({ enabled: false, lastSyncStatus: 'idle' })
+    ).not.toThrow();
+    expect(state.CONFIG).toBeNull();
+    expect(document.getElementById('profile-sync-passphrase-group').classList).toContain('hidden');
+
+    state.setConfig({ profileSync: { enabled: true, encryptionEnabled: true } });
+    settings.handleProfileSyncStatusUpdate({ enabled: true, lastSyncStatus: 'success' });
+    expect(document.getElementById('profile-sync-passphrase-group').classList).not.toContain(
+      'hidden'
+    );
+    expect(state.CONFIG.profileSync.encryptionEnabled).toBe(true);
+  });
   const waitForLanguagePackRefresh = async () => {
     await settings.waitForLanguagePackRefresh();
     await Promise.resolve();
@@ -545,6 +568,151 @@ describe('Settings + Config Integration', () => {
   };
 
   describe('Settings Open/Close Flow', () => {
+    test.each(['tabs', 'rooms'])(
+      'loads and saves the %s dashboard layout without changing pages',
+      async (presentation) => {
+        state.setConfig({
+          ...state.CONFIG,
+          ui: { ...state.CONFIG.ui, quickAccessPresentation: presentation },
+        });
+        const tabs = JSON.stringify(state.CONFIG.customTabs);
+        await settings.openSettings();
+        const select = document.getElementById('quick-access-presentation');
+        expect(select.value).toBe(presentation);
+        select.value = presentation === 'rooms' ? 'tabs' : 'rooms';
+        await settings.saveSettings();
+        expect(window.electronAPI.updateConfig).toHaveBeenCalledWith(
+          expect.objectContaining({
+            ui: expect.objectContaining({ quickAccessPresentation: select.value }),
+          })
+        );
+        expect(JSON.stringify(state.CONFIG.customTabs)).toBe(tabs);
+      }
+    );
+
+    test('loads connected monitors and saves the monitor and fill preferences', async () => {
+      await settings.openSettings();
+      const select = document.getElementById('window-display-id');
+      expect(document.getElementById('window-display-settings').hidden).toBe(false);
+      expect(Array.from(select.options).map((option) => option.value)).toEqual([
+        '',
+        'primary',
+        '1',
+        '2',
+      ]);
+      select.value = '2';
+      document.getElementById('fill-monitor').checked = true;
+      await settings.saveSettings();
+      expect(window.electronAPI.updateConfig).toHaveBeenCalledWith(
+        expect.objectContaining({ windowDisplayId: '2', fillMonitor: true })
+      );
+    });
+
+    test('preserves a disconnected monitor selection instead of silently replacing it', async () => {
+      state.setConfig({ ...state.CONFIG, windowDisplayId: '99', fillMonitor: true });
+      await settings.openSettings();
+      expect(document.getElementById('window-display-id').value).toBe('99');
+      expect(document.getElementById('fill-monitor').checked).toBe(true);
+      await settings.saveSettings();
+      expect(window.electronAPI.updateConfig).toHaveBeenCalledWith(
+        expect.objectContaining({ windowDisplayId: '99', fillMonitor: true })
+      );
+    });
+
+    test('hides unsupported monitor controls and preserves saved preferences', async () => {
+      state.setConfig({ ...state.CONFIG, windowDisplayId: '99', fillMonitor: true });
+      window.electronAPI.getWindowDisplays.mockResolvedValueOnce({
+        supported: false,
+        displays: [],
+      });
+      await settings.openSettings();
+      expect(document.getElementById('window-display-settings').hidden).toBe(true);
+      expect(document.getElementById('window-display-id').disabled).toBe(true);
+      await settings.saveSettings();
+      expect(window.electronAPI.updateConfig).toHaveBeenCalledWith(
+        expect.objectContaining({ windowDisplayId: '99', fillMonitor: true })
+      );
+    });
+
+    test('saves the Windows login visibility preference and keeps it dependent on Start at login', async () => {
+      window.electronAPI.platform = 'win32';
+      document
+        .getElementById('start-with-windows')
+        .insertAdjacentHTML(
+          'afterend',
+          '<div id="start-in-tray-at-login-group"><input type="checkbox" id="start-in-tray-at-login"></div>'
+        );
+      window.electronAPI.getLoginItemSettings.mockResolvedValueOnce({
+        openAtLogin: false,
+        supported: true,
+      });
+      await settings.openSettings();
+      const start = document.getElementById('start-with-windows');
+      const hidden = document.getElementById('start-in-tray-at-login');
+      expect(hidden.disabled).toBe(true);
+      start.checked = true;
+      start.dispatchEvent(new Event('change'));
+      expect(hidden.disabled).toBe(false);
+      hidden.checked = true;
+      await settings.saveSettings();
+      expect(window.electronAPI.updateConfig).toHaveBeenCalledWith(
+        expect.objectContaining({ startInTrayAtLogin: true })
+      );
+      expect(window.electronAPI.setLoginItemSettings).toHaveBeenCalledWith(true);
+    });
+
+    test('development startup controls cannot overwrite the installed login registration', async () => {
+      window.electronAPI.getLoginItemSettings.mockResolvedValueOnce({
+        openAtLogin: false,
+        supported: false,
+      });
+      await settings.openSettings();
+      expect(document.getElementById('start-with-windows').disabled).toBe(true);
+      await settings.saveSettings();
+      expect(window.electronAPI.setLoginItemSettings).not.toHaveBeenCalled();
+    });
+    test.each([
+      ['system-bridge-download-btn', 'https://system-bridge.timmo.dev/install/'],
+      ['system-bridge-setup-btn', 'https://www.home-assistant.io/integrations/system_bridge/'],
+    ])('opens the official guide from %s without saving settings', async (id, url) => {
+      const button = document.createElement('button');
+      button.id = id;
+      document.body.appendChild(button);
+      await settings.openSettings();
+      await settings.openSettings();
+      window.electronAPI.openExternal.mockClear();
+      window.electronAPI.updateConfig.mockClear();
+      await button.onclick();
+      expect(window.electronAPI.openExternal).toHaveBeenCalledTimes(1);
+      expect(window.electronAPI.openExternal).toHaveBeenCalledWith(url);
+      expect(window.electronAPI.updateConfig).not.toHaveBeenCalled();
+      expect(button.disabled).toBe(false);
+    });
+
+    test.each(['rejected', 'unsuccessful'])(
+      'reports a %s help-link request and enables retry',
+      async (failure) => {
+        const button = document.createElement('button');
+        button.id = 'system-bridge-download-btn';
+        document.body.appendChild(button);
+        await settings.openSettings();
+        if (failure === 'rejected') {
+          window.electronAPI.openExternal.mockRejectedValueOnce(new Error('Browser unavailable'));
+        } else {
+          window.electronAPI.openExternal.mockResolvedValueOnce({
+            success: false,
+            error: 'Browser unavailable',
+          });
+        }
+        await button.onclick();
+        expect(mockUiUtils.showToast).toHaveBeenCalledWith(
+          'Could not open the setup guide. Please try again.',
+          'error',
+          3000
+        );
+        expect(button.disabled).toBe(false);
+      }
+    );
     test('opening settings populates fields from config', async () => {
       const mockUiHooks = {
         exitReorganizeMode: jest.fn(),

@@ -9,6 +9,10 @@ directories:
   buildResources: build
   output: dist
 afterPack: scripts/after-pack-mac-adhoc-sign.cjs
+# Rebuild through beforePack: a false beforeBuild result also skips collecting
+# node_modules in current electron-builder versions, producing an unusable app.
+npmRebuild: false
+beforePack: scripts/rebuild-native-dependencies.cjs
 files:
   - index.html
   # Self-hosted Inter / Plus Jakarta Sans woff2 subsets referenced by the
@@ -27,13 +31,17 @@ files:
   - build/icon.png
   - package.json
   - '!node_modules/usocket/**/*'
+  # Local and fork builds can coexist in a checkout. Never bundle one inside another.
+  - '!dist{,/**/*}'
+  - '!dist-local{,/**/*}'
+  - '!dist-fork{,/**/*}'
 asar: true
 compression: normal
 publish:
-  - provider: github
-    owner: Robertg761
-    repo: HA-Desktop-Widget
-    releaseType: release
+  provider: github
+  owner: Robertg761
+  repo: HA-Desktop-Widget
+  releaseType: release
 
 mac:
   minimumSystemVersion: '12.0'
@@ -49,7 +57,11 @@ mac:
   # win.files one shared array instance; do not reuse the anchor under top-level
   # files/extraFiles/extraResources — app-builder-lib normalizes those in place,
   # which would corrupt the shared list for the platform sections.
-  files: &dbusNextExcludes
+  files: &nonLinuxFiles
+    # A platform list containing only exclusions creates a separate **/* matcher,
+    # bypassing the top-level allowlist after inherited config normalisation.
+    # This explicit include keeps that matcher limited to the package metadata.
+    - package.json
     - '!node_modules/dbus-next/**/*'
     - '!node_modules/event-stream/**/*'
     - '!node_modules/hexy/**/*'
@@ -67,7 +79,7 @@ mac:
     - '!node_modules/stream-combiner/**/*'
 win:
   icon: build/icon.ico
-  files: *dbusNextExcludes
+  files: *nonLinuxFiles
   target:
     - target: nsis
       arch: [x64]

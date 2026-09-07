@@ -1,10 +1,119 @@
 const fs = require('fs');
 const path = require('path');
+const vm = require('vm');
 
 const mainSource = fs.readFileSync(path.resolve(__dirname, '../../main.js'), 'utf8');
 const stylesSource = fs.readFileSync(path.resolve(__dirname, '../../styles.css'), 'utf8');
+const uiSource = fs.readFileSync(path.resolve(__dirname, '../../src/ui.js'), 'utf8');
+const settingsSource = fs.readFileSync(path.resolve(__dirname, '../../src/settings.js'), 'utf8');
+const localBuilderSource = fs.readFileSync(
+  path.resolve(__dirname, '../../electron-builder.local.yml'),
+  'utf8'
+);
+const packageConfig = require('../../package.json');
 
 describe('main-process wiring safeguards', () => {
+  it.each([true, false])('only makes renderer errors fatal during smoke tests (%s)', (smoke) => {
+    const start = mainSource.indexOf('function forwardRendererConsole(');
+    const end = mainSource.indexOf('\nconst usesLinuxPopupHotkeyBackend', start);
+    const finishSmokeTest = jest.fn();
+    const log = { error: jest.fn(), warn: jest.fn() };
+    let callback;
+    const context = { IS_SMOKE_TEST_MODE: smoke, finishSmokeTest, log };
+    vm.runInNewContext(mainSource.slice(start, end), context);
+    context.forwardRendererConsole({ on: (_event, handler) => (callback = handler) });
+    callback({ level: 'warning', message: 'Not configured yet' });
+    expect(finishSmokeTest).not.toHaveBeenCalled();
+    callback({ level: 'error', message: 'Startup failed' });
+    expect(log.error).toHaveBeenCalledWith('[renderer] Startup failed');
+    callback({}, 3, 'Legacy renderer error');
+    if (smoke) {
+      expect(finishSmokeTest).toHaveBeenCalledWith(false, 'Renderer error: Startup failed');
+      expect(finishSmokeTest).toHaveBeenCalledWith(false, 'Renderer error: Legacy renderer error');
+    } else {
+      expect(finishSmokeTest).not.toHaveBeenCalled();
+    }
+  });
+  it('applies preferred monitor placement for every shared popup show path', () => {
+    expect(mainSource).toContain('prepareWindowForShow: recoverMainWindowPlacement');
+  });
+  it('prevents development and smoke settings from changing system startup', () => {
+    for (const channel of ['get-login-item-settings', 'set-login-item-settings']) {
+      const start = mainSource.indexOf(`ipcMain.handle('${channel}'`);
+      const handler = mainSource.slice(start, mainSource.indexOf('\n});', start));
+      expect(handler).toContain('!app.isPackaged || IS_SMOKE_TEST_MODE');
+      expect(handler).toContain('supported: false');
+      expect(handler.indexOf('IS_SMOKE_TEST_MODE')).toBeLessThan(handler.indexOf('try {'));
+      for (const [isPackaged, smokeTest] of [
+        [false, false],
+        [true, true],
+      ]) {
+        const app = {
+          isPackaged,
+          getLoginItemSettings: jest.fn(),
+          setLoginItemSettings: jest.fn(),
+        };
+        let registeredHandler;
+        vm.runInNewContext(`${handler}\n});`, {
+          app,
+          IS_SMOKE_TEST_MODE: smokeTest,
+          authorizeIpcSender: () => true,
+          ipcMain: {
+            handle: (_name, callback) => {
+              registeredHandler = callback;
+            },
+          },
+        });
+        expect(registeredHandler({}, true)).toMatchObject({ openAtLogin: false, supported: false });
+        expect(app.getLoginItemSettings).not.toHaveBeenCalled();
+        expect(app.setLoginItemSettings).not.toHaveBeenCalled();
+      }
+    }
+  });
+
+  it('routes fork updates and Windows identity through build metadata', () => {
+    expect(mainSource).toContain(
+      "const GITHUB_REPOSITORY = pkg.githubRepository || 'Robertg761/HA-Desktop-Widget';"
+    );
+    expect(mainSource).toContain('const repo = GITHUB_REPOSITORY;');
+    expect(mainSource).toContain(
+      "app.setAppUserModelId(pkg.appId || 'com.github.robertg761.hadesktopwidget')"
+    );
+  });
+
+  it('defers file logging until the isolated profile is selected', () => {
+    const pause = mainSource.indexOf('log.transports.file.level = false;');
+    const select = mainSource.indexOf("const userDataPath = app.getPath('userData');");
+    const resume = mainSource.indexOf("log.transports.file.level = 'info';");
+    expect(pause).toBeGreaterThan(0);
+    expect(select).toBeGreaterThan(pause);
+    expect(resume).toBeGreaterThan(select);
+    expect(mainSource).toContain(
+      "log.transports.file.resolvePathFn = () => path.join(userDataPath, 'logs', 'main.log');"
+    );
+  });
+  it('isolates every unpackaged launch from production and preserves the development profile on start', () => {
+    expect(mainSource).toContain('const USE_ISOLATED_DEV_PROFILE = !app.isPackaged;');
+    expect(mainSource).toContain('} else if (USE_ISOLATED_DEV_PROFILE) {');
+    expect(packageConfig.scripts.start).toContain('--dev --preserve-dev-profile');
+  });
+
+  it('only enables full-window development reloads when explicitly requested', () => {
+    expect(mainSource).toContain("process.argv.includes('--live-reload')");
+    expect(mainSource).toContain('if (!DEV_LIVE_RELOAD_ENABLED || isQuitting) return;');
+    expect(mainSource).toContain(
+      'if (!DEV_LIVE_RELOAD_ENABLED || devReloadWatchersStarted) return;'
+    );
+    expect(mainSource).toContain(
+      'if (targetIsDirectory && fs.statSync(changedPath).isDirectory())'
+    );
+  });
+
+  it('only opens detached developer tools when explicitly requested', () => {
+    expect(mainSource).toContain("process.argv.includes('--dev-tools')");
+    expect(mainSource).toContain('if (DEV_TOOLS_ENABLED)');
+  });
+
   it('denies renderer-created windows and routes http/https navigation externally', () => {
     expect(mainSource).toContain('function hardenRendererNavigation');
     expect(mainSource).toContain('setWindowOpenHandler');
@@ -49,7 +158,7 @@ describe('main-process wiring safeguards', () => {
     expect(mainSource).toContain('XWAYLAND_UNAVAILABLE_MARKER_PATH');
     expect(mainSource).toContain('previousAttemptFailed: hasXWaylandFailureMarker()');
     // A saved position on a disconnected monitor must not open the widget off-screen.
-    expect(mainSource).toContain('clampPositionToWorkAreas(');
+    expect(mainSource).toContain('resolveWindowPlacement(');
     // Window rules match on the title, so it has to be stable and not follow the page.
     expect(mainSource).toContain("const MAIN_WINDOW_TITLE = 'HA Desktop Widget'");
     expect(mainSource).toContain('title: MAIN_WINDOW_TITLE');
@@ -236,9 +345,8 @@ describe('main-process wiring safeguards', () => {
     const minimizeStart = mainSource.indexOf("ipcMain.handle('minimize-window'");
     const minimizeEnd = mainSource.indexOf("ipcMain.handle('focus-window'", minimizeStart);
     const minimizeSource = mainSource.slice(minimizeStart, minimizeEnd);
-    expect(minimizeSource).toContain('if (usesCompositorOwnedPlacement)');
     expect(minimizeSource).toContain('hideMainWindowToTray()');
-    expect(minimizeSource).toContain('mainWindow.minimize()');
+    expect(minimizeSource).not.toContain('mainWindow.minimize()');
 
     const changeWindowStart = mainSource.indexOf('const changeWin = () =>');
     const changeWindowEnd = mainSource.indexOf(
@@ -601,6 +709,15 @@ describe('main-process wiring safeguards', () => {
     expect(mainSource).toContain('/releases/latest');
   });
 
+  it('keeps locally installed customised builds out of the upstream update channel', () => {
+    expect(localBuilderSource).toContain('localBuild: true');
+    expect(packageConfig.scripts['dist:local:win']).toContain('electron-builder.local.yml');
+    expect(mainSource).toContain('const IS_LOCAL_BUILD = pkg.localBuild === true;');
+    expect(mainSource).toContain("status: 'local'");
+    expect(mainSource).toContain('Local build detected; automatic updates are disabled.');
+    expect(uiSource).toContain("result.status === 'dev' || result.status === 'local'");
+  });
+
   it('routes tray and renderer update checks through the same package capability guard', () => {
     const trayStart = mainSource.indexOf('function buildTrayContextMenu');
     const trayEnd = mainSource.indexOf('function createTray', trayStart);
@@ -699,16 +816,88 @@ describe('main-process wiring safeguards', () => {
     );
   });
 
-  it('keeps Windows non-glass opacity on renderer background surfaces', () => {
+  it('uses native opacity for the snap-capable Windows main window', () => {
     expect(mainSource).toContain('function shouldUseNativeWindowOpacity');
-    expect(mainSource).toContain("process.platform === 'win32'");
-    expect(mainSource).toContain('transparent = true;');
+    expect(mainSource).toContain('getEffectiveMainWindowTransparencyOptions(currentConfig)');
     expect(mainSource).toContain(
       'targetWindow.setOpacity(shouldUseNativeWindowOpacity(currentConfig) ? safeOpacity : 1)'
     );
+    expect(mainSource).toContain('maximizable: true');
+    expect(mainSource).toContain('fullscreenable: true');
   });
 
-  it('reapplies Windows acrylic after focus and visibility lifecycle changes', () => {
+  it('keeps native main-window visuals separate from transparent desktop pins', () => {
+    const mainWindowStart = mainSource.indexOf('function createWindow()');
+    const mainWindowEnd = mainSource.indexOf('mainWindow = new BrowserWindow', mainWindowStart);
+    const mainWindowOptionsSource = mainSource.slice(mainWindowStart, mainWindowEnd);
+    const pinWindowStart = mainSource.indexOf('function createDesktopPinWindow');
+    const pinWindowEnd = mainSource.indexOf('const pinWindow = new BrowserWindow', pinWindowStart);
+    const pinWindowOptionsSource = mainSource.slice(pinWindowStart, pinWindowEnd);
+
+    expect(mainWindowOptionsSource).toContain('getMainWindowVisualOptions');
+    expect(mainWindowOptionsSource).toContain('frame: false');
+    expect(mainWindowOptionsSource).toContain('resizable: true');
+    expect(mainWindowOptionsSource).toContain('maximizable: true');
+    expect(pinWindowOptionsSource).toContain('getWindowTransparencyOptions(config)');
+    expect(pinWindowOptionsSource).toContain('transparent: transparencyOptions.transparent');
+    expect(pinWindowOptionsSource).toContain('resizable: false');
+    expect(pinWindowOptionsSource).toContain('maximizable: false');
+    expect(mainSource).toContain('targetWindow === mainWindow');
+    expect(mainSource).toContain('? getEffectiveMainWindowTransparencyOptions(currentConfig)');
+  });
+
+  it('keeps the complete custom header draggable while its controls remain interactive', () => {
+    const readRule = (selector) => {
+      const start = stylesSource.indexOf(`\n${selector} {`);
+      const end = stylesSource.indexOf('}', start);
+      expect(start).toBeGreaterThanOrEqual(0);
+      return stylesSource.slice(start, end);
+    };
+    const headerRule = readRule('.widget-header');
+    const dragAreaRule = readRule('.drag-area');
+    const connectionIndicatorRule = readRule('.connection-indicator');
+    const headerControlsRule = readRule('.header-controls');
+
+    expect(headerRule).toMatch(/\n\s+app-region: drag;/);
+    expect(headerRule).toContain('-webkit-app-region: drag;');
+    expect(dragAreaRule).toMatch(/\n\s+app-region: drag;/);
+    expect(dragAreaRule).toContain('-webkit-app-region: drag;');
+    expect(connectionIndicatorRule).toMatch(/\n\s+app-region: no-drag;/);
+    expect(connectionIndicatorRule).toContain('-webkit-app-region: no-drag;');
+    expect(headerControlsRule).toMatch(/\n\s+app-region: no-drag;/);
+    expect(headerControlsRule).toContain('-webkit-app-region: no-drag;');
+  });
+
+  it('uses native maximise for the screen-fill control while retaining F11 full screen', () => {
+    expect(mainSource).toContain("mainWindow.on('maximize', notifyMainWindowMaximizeStateChanged)");
+    expect(mainSource).toContain(
+      "mainWindow.on('unmaximize', notifyMainWindowMaximizeStateChanged)"
+    );
+    expect(mainSource).toContain("'maximize-state-changed'");
+    expect(mainSource).toContain("ipcMain.handle('toggle-maximize'");
+    expect(mainSource).toContain('return toggleWindowMaximized(mainWindow)');
+    expect(mainSource).toContain('if (isFullScreenShortcut(input))');
+    expect(mainSource).toContain('setMainWindowFullScreenMode(!isMainWindowFullScreenMode())');
+  });
+
+  it('supports an explicit quit or notification-area close-button action', () => {
+    expect(mainSource).toContain("closeButtonAction: 'minimize'");
+    expect(mainSource).toContain('target.closeButtonAction = normalizeCloseButtonAction');
+    expect(mainSource).toContain('skipTaskbar: true');
+    expect(mainSource).toContain(
+      "normalizeCloseButtonAction(config?.closeButtonAction) === 'quit'"
+    );
+    expect(mainSource).not.toContain('shouldMinimizeMainWindowToTaskbar');
+    expect(mainSource).toContain('mainWindow.setSkipTaskbar(true)');
+    expect(mainSource).toContain('hideMainWindowToTray()');
+    expect(mainSource).toContain("ipcMain.handle('close-window'");
+    expect(settingsSource).toContain("closeButtonAction.value === 'quit' ? 'quit' : 'minimize'");
+    expect(fs.readFileSync(path.resolve(__dirname, '../../renderer.js'), 'utf8')).toContain(
+      'window.electronAPI.closeWindow()'
+    );
+  });
+
+  it('coalesces Windows lifecycle effect refreshes and skips forced full-screen resets', () => {
     const start = mainSource.indexOf('function wireWindowEffectsRefresh');
     const end = mainSource.indexOf('function applyDesktopPinWindowEffects');
     const refreshSource = mainSource.slice(start, end);
@@ -721,13 +910,26 @@ describe('main-process wiring safeguards', () => {
     expect(refreshSource).toContain("'restore'");
     expect(refreshSource).toContain("'enter-full-screen'");
     expect(refreshSource).toContain("'leave-full-screen'");
-    expect(refreshSource).toContain(
-      'applyWindowEffectsToWindow(targetWindow, currentConfig, overrideFrostedGlass)'
-    );
-    expect(refreshSource).toContain('setTimeout(refreshEffects, 50)');
-    expect(refreshSource).toContain('setTimeout(refreshEffects, 250)');
+    expect(refreshSource).toContain('force: force && !suppressNativeGlass');
+    expect(refreshSource).toContain('}, 120)');
+    expect(refreshSource).not.toContain('setTimeout(refreshEffects, 50)');
+    expect(refreshSource).not.toContain('setTimeout(refreshEffects, 250)');
     expect(mainSource).toContain('wireWindowEffectsRefresh(mainWindow, () => config)');
     expect(mainSource).toContain('wireWindowEffectsRefresh(pinWindow, () => config, false)');
+  });
+
+  it('uses an opaque filter-free presentation only for Windows full-screen glass', () => {
+    expect(mainSource).toContain('const windowEffectState = new WeakMap()');
+    expect(mainSource).toContain("'full-screen-state-changed'");
+    expect(mainSource).toContain('FULL_SCREEN_EFFECTS_RESTORE_DELAY_MS');
+    expect(mainSource).toContain('suppressNativeGlass: mainWindowFullScreenEffectsSuppressed');
+    expect(mainSource).toContain(
+      'if (!suppressNativeGlass && materialApplied) applyBackgroundColor()'
+    );
+    expect(stylesSource).toContain('body.frosted-glass.fullscreen-stability-mode {');
+    expect(stylesSource).toContain('body.fullscreen-stability-mode *,');
+    expect(stylesSource).toContain('body.fullscreen-stability-mode #settings-modal * {');
+    expect(stylesSource).toContain('background: rgb(var(--window-bg-rgb, 40, 40, 45)) !important;');
   });
 
   it('limits non-glass window alpha CSS to background containers', () => {

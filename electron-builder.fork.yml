@@ -1,0 +1,45 @@
+extends: ./electron-builder.yml
+
+# Keep fork builds completely separate from the upstream installation. This
+# prevents single-instance locks, settings, OAuth storage and auto-updates from
+# crossing between the two applications.
+productName: HA Network Dashboard
+appId: com.github.ci303.hanetworkdashboard
+
+directories:
+  buildResources: build
+  output: dist-fork
+
+extraMetadata:
+  githubRepository: Ci303/HA-Desktop-Widget
+  name: ha-network-dashboard
+  appId: com.github.ci303.hanetworkdashboard
+  desktopName: com.github.ci303.hanetworkdashboard.desktop
+  repository:
+    type: git
+    url: https://github.com/Ci303/HA-Desktop-Widget.git
+  homepage: https://github.com/Ci303/HA-Desktop-Widget
+  bugs:
+    url: https://github.com/Ci303/HA-Desktop-Widget/issues
+
+# Use an object: inherited arrays concatenate and would keep upstream first.
+publish:
+  provider: github
+  owner: Ci303
+  repo: HA-Desktop-Widget
+  releaseType: release
+
+nsis:
+  artifactName: '${productName}-${version}-win-${arch}-Setup.${ext}'
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico
+  installerHeaderIcon: build/icon.ico
+  oneClick: true
+  perMachine: false
+  allowToChangeInstallationDirectory: false
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  shortcutName: HA Network Dashboard
+
+portable:
+  artifactName: '${productName}-${version}-win-${arch}-Portable.${ext}'

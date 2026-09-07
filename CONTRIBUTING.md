@@ -6,8 +6,8 @@ Thank you for your interest in contributing to HA Desktop Widget! This document 
 
 ### Prerequisites
 
-- Node.js 20
-- npm
+- Node.js 24 LTS
+- npm 11.19.x or newer within npm 11 (`npm install --global npm@11.19.0`)
 - Git
 - Windows 10/11, macOS 12+, or a current Linux desktop
 
@@ -30,9 +30,19 @@ Thank you for your interest in contributing to HA Desktop Widget! This document 
 
 ## 🎯 How to Contribute
 
+### Fork builds
+
+The standard `dist` scripts build **HA Network Dashboard**, with a separate application ID, profile and update destination. `npm run dist:fork:win` puts Windows artifacts in `dist-fork`; the other public build scripts use `dist`.
+
+`npm run dist:local:win` is deliberately different: it replaces the original per-user HA Desktop Widget installation, retains its profile and disables automatic updates. Back up that profile before installing a local replacement. Do not publish the local replacement as a fork release.
+
+Development launches use an isolated profile and cannot change the installed application's Start at login setting. Only Windows packaging and runtime checks have been verified locally; macOS and Linux builds still need their CI checks.
+
+Dependency installation and packaging share `scripts/rebuild-native-dependencies.cjs`. It rebuilds runtime native addons for the target Electron architecture, excluding the unused `usocket` addon. The Linux D-Bus integrations use Node's `net.Socket` instead; `usocket` is excluded from every package and its install script is disabled.
+
 ### Reporting Issues
 
-- **Bug Reports**: Use the [Issues](https://github.com/Robertg761/HA-Desktop-Widget/issues) page
+- **Bug Reports**: Use the [fork Issues](https://github.com/Ci303/HA-Desktop-Widget/issues) page
 - **Feature Requests**: Submit enhancement ideas with detailed descriptions
 - **Security Issues**: Use GitHub private vulnerability reporting when available; otherwise follow [SECURITY.md](SECURITY.md) to contact the maintainer privately
 

@@ -1608,6 +1608,34 @@ websocket.on('connect-attempt', () => {
   renderMainWidgetState();
 });
 
+function applyFullScreenPresentationState(nextState = {}) {
+  const isFullScreen = !!nextState?.isFullScreen;
+  const stabilityMode =
+    window.electronAPI?.platform === 'win32' && !!nextState?.fullScreenStabilityMode;
+  document.body.classList.toggle('fullscreen-stability-mode', stabilityMode);
+  const maximizeBtn = document.getElementById('maximize-btn');
+  if (maximizeBtn) maximizeBtn.disabled = isFullScreen;
+}
+
+function applyMaximizePresentationState(nextState = {}) {
+  const isMaximized = !!nextState?.isMaximized;
+  const maximizeBtn = document.getElementById('maximize-btn');
+  if (!maximizeBtn) return;
+
+  const labelKey = isMaximized ? 'Restore Window' : 'Maximise';
+  const label = t(labelKey);
+  maximizeBtn.dataset.windowState = isMaximized ? 'maximized' : 'normal';
+  maximizeBtn.dataset.i18nTitle = labelKey;
+  maximizeBtn.dataset.i18nAriaLabel = labelKey;
+  maximizeBtn.title = label;
+  maximizeBtn.setAttribute('aria-label', label);
+
+  const maximizeIcon = maximizeBtn.querySelector('.window-maximize-icon');
+  const restoreIcon = maximizeBtn.querySelector('.window-restore-icon');
+  if (maximizeIcon) maximizeIcon.toggleAttribute('hidden', isMaximized);
+  if (restoreIcon) restoreIcon.toggleAttribute('hidden', !isMaximized);
+}
+
 // --- IPC Event Handlers ---
 window.electronAPI.onHotkeyTriggered(({ entityId, action }) => {
   const resolvedEntityId = utils.resolveEntityId(entityId, state.STATES) || entityId;
@@ -1691,6 +1719,9 @@ window.electronAPI.onEntityTileHotkeyRequested(({ entityId } = {}) => {
   if (IS_DESKTOP_PIN_MODE || !entityId) return;
   hotkeys.assignHotkeyToEntity(entityId);
 });
+
+window.electronAPI.onFullScreenStateChanged?.(applyFullScreenPresentationState);
+window.electronAPI.onMaximizeStateChanged?.(applyMaximizePresentationState);
 
 window.electronAPI.onDesktopCompanionStateChanged?.((nextState) => {
   void desktopCompanionClient?.reportState(null, nextState);
@@ -1816,6 +1847,14 @@ async function init() {
     if (IS_DESKTOP_PIN_MODE) {
       await initializeDesktopPinMode();
       return;
+    }
+
+    try {
+      const windowState = await window.electronAPI.getWindowState();
+      applyFullScreenPresentationState(windowState);
+      applyMaximizePresentationState(windowState);
+    } catch (error) {
+      log.warn('Failed to read initial window presentation state:', error);
     }
 
     // Initialize weather background effects. Pin windows skip this above: they render a
@@ -2062,7 +2101,7 @@ function wireUI() {
     const closeBtn = document.getElementById('close-btn');
     if (closeBtn) {
       closeBtn.onclick = () => {
-        window.electronAPI.quitApp();
+        window.electronAPI.closeWindow();
       };
     }
 
@@ -2070,6 +2109,26 @@ function wireUI() {
     if (minimizeBtn) {
       minimizeBtn.onclick = () => {
         window.electronAPI.minimizeWindow();
+      };
+    }
+
+    const maximizeBtn = document.getElementById('maximize-btn');
+    if (maximizeBtn) {
+      maximizeBtn.onclick = async () => {
+        try {
+          const result = await window.electronAPI.toggleMaximize();
+          if (result?.success) {
+            applyMaximizePresentationState(result);
+          } else {
+            uiUtils.showToast(
+              result?.error || t('Failed to maximise or restore the window.'),
+              'error'
+            );
+          }
+        } catch (error) {
+          log.error('Failed to maximise or restore the window:', error);
+          uiUtils.showToast(t('Failed to maximise or restore the window.'), 'error');
+        }
       };
     }
 

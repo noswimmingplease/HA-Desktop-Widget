@@ -161,6 +161,32 @@
           </svg>
         </button>
         <button
+          id="maximize-btn"
+          class="control-btn"
+          type="button"
+          data-i18n-title="Maximise"
+          data-i18n-aria-label="Maximise"
+          title="Maximise"
+          aria-label="Maximise"
+          data-window-state="normal"
+        >
+          <svg
+            class="icon"
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="currentColor"
+            aria-hidden="true"
+          >
+            <path class="window-maximize-icon" d="M4 4h16v16H4V4zm2 2v12h12V6H6z" />
+            <path
+              class="window-restore-icon"
+              d="M7 3h14v14h-3V6H7V3zM3 7h14v14H3V7zm3 3v8h8v-8H6z"
+              hidden
+            />
+          </svg>
+        </button>
+        <button
           id="close-btn"
           class="control-btn"
           type="button"
@@ -472,6 +498,56 @@
               </div>
             </div>
 
+            <section class="settings-card" aria-labelledby="system-information-title">
+              <div class="settings-card-header">
+                <h3
+                  id="system-information-title"
+                  class="settings-card-title"
+                  data-i18n="System information setup"
+                >
+                  System information setup
+                </h3>
+              </div>
+              <p
+                data-i18n="For system readings through System Bridge, install and keep it running on each computer you want to monitor."
+              >
+                For system readings through System Bridge, install and keep it running on each
+                computer you want to monitor.
+              </p>
+              <p
+                data-i18n="Add its integration in Home Assistant, then select its sensors for your dashboard. Available CPU, memory, storage and GPU readings depend on the hardware."
+              >
+                Add its integration in Home Assistant, then select its sensors for your dashboard.
+                Available CPU, memory, storage and GPU readings depend on the hardware.
+              </p>
+              <p
+                class="form-help"
+                data-i18n="System Bridge is optional if another integration already supplies your system sensors. It is not needed for lights, switches or other existing Home Assistant entities."
+              >
+                System Bridge is optional if another integration already supplies your system
+                sensors. It is not needed for lights, switches or other existing Home Assistant
+                entities.
+              </p>
+              <div class="connection-test-row">
+                <button
+                  type="button"
+                  id="system-bridge-download-btn"
+                  class="btn btn-secondary"
+                  data-i18n="Download System Bridge"
+                >
+                  Download System Bridge
+                </button>
+                <button
+                  type="button"
+                  id="system-bridge-setup-btn"
+                  class="btn btn-secondary"
+                  data-i18n="Home Assistant setup"
+                >
+                  Home Assistant setup
+                </button>
+              </div>
+            </section>
+
             <!-- Window & Behavior Card -->
             <div class="settings-card">
               <div class="settings-card-header">
@@ -495,6 +571,71 @@
                   <input type="checkbox" id="start-with-windows" />
                   <span data-i18n="Start at login">Start at login</span>
                 </label>
+              </div>
+              <div class="form-group">
+                <div id="start-in-tray-at-login-group" hidden>
+                  <label>
+                    <input
+                      type="checkbox"
+                      id="start-in-tray-at-login"
+                      aria-describedby="start-in-tray-at-login-help"
+                    />
+                    <span data-i18n="Start in notification area at login"
+                      >Start in notification area at login</span
+                    >
+                  </label>
+                  <div
+                    id="start-in-tray-at-login-help"
+                    class="form-help"
+                    data-i18n="Opening the app yourself still shows the window."
+                  >
+                    Opening the app yourself still shows the window.
+                  </div>
+                </div>
+              </div>
+              <div id="window-display-settings" hidden>
+                <div class="form-group">
+                  <label for="window-display-id" data-i18n="Display on monitor"
+                    >Display on monitor</label
+                  >
+                  <select id="window-display-id" aria-describedby="window-display-help"></select>
+                  <div
+                    id="window-display-help"
+                    class="form-help"
+                    data-i18n="Monitors are listed left to right. If the selected monitor is disconnected, the primary monitor is used until it returns."
+                  >
+                    Monitors are listed left to right. If the selected monitor is disconnected, the
+                    primary monitor is used until it returns.
+                  </div>
+                </div>
+                <div class="form-group">
+                  <label>
+                    <input type="checkbox" id="fill-monitor" aria-describedby="fill-monitor-help" />
+                    <span data-i18n="Fill monitor">Fill monitor</span>
+                  </label>
+                  <div
+                    id="fill-monitor-help"
+                    class="form-help"
+                    data-i18n="Fill the monitor while keeping the taskbar accessible. Turn off to restore your previous window size."
+                  >
+                    Fill the monitor while keeping the taskbar accessible. Turn off to restore your
+                    previous window size.
+                  </div>
+                </div>
+              </div>
+              <div class="form-group">
+                <label for="close-button-action" data-i18n="Close button action">
+                  Close button action
+                </label>
+                <select id="close-button-action">
+                  <option value="minimize" data-i18n="Minimise to notification area">
+                    Minimise to notification area
+                  </option>
+                  <option value="quit" data-i18n="Exit application">Exit application</option>
+                </select>
+                <div class="form-help" data-i18n="Controls what the X button does.">
+                  Controls what the X button does.
+                </div>
               </div>
             </div>
 
@@ -1059,6 +1200,22 @@
                 ></span>
               </button>
               <div id="window-effects-body" class="section-body">
+                <div class="form-group">
+                  <label for="quick-access-presentation" data-i18n="Dashboard layout"
+                    >Dashboard layout</label
+                  >
+                  <select id="quick-access-presentation">
+                    <option value="tabs" data-i18n="Tabbed pages">Tabbed pages</option>
+                    <option value="rooms" data-i18n="Device panels">Device panels</option>
+                  </select>
+                  <div
+                    class="form-help"
+                    data-i18n="Show each Quick Access page as a separate device panel, or switch between pages using tabs."
+                  >
+                    Show each Quick Access page as a separate device panel, or switch between pages
+                    using tabs.
+                  </div>
+                </div>
                 <div class="form-group">
                   <label for="density-select" data-i18n="Layout density">Layout density</label>
                   <select id="density-select">

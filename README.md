@@ -1,19 +1,39 @@
-# HA Desktop Widget
+# HA Network Dashboard
+
+This is **Ci303's HA Network Dashboard fork** of Robertg761's HA Desktop Widget. It adds a responsive device-panel dashboard, section colours and a choice of close-button behaviour. Public fork builds install separately from the original application; the original project credits and history are retained.
+
+Fork development is at [Ci303/HA-Desktop-Widget](https://github.com/Ci303/HA-Desktop-Widget). No fork release has been published yet; use the [fork build instructions](CONTRIBUTING.md#fork-builds) to build locally. Screenshots below are from the original application unless noted otherwise. The [original project](https://github.com/Robertg761/HA-Desktop-Widget) remains available separately.
 
 A semi-transparent desktop widget for Home Assistant that provides quick access to your smart home devices from your desktop.
 
-[![CI](https://github.com/Robertg761/HA-Desktop-Widget/actions/workflows/ci.yml/badge.svg)](https://github.com/Robertg761/HA-Desktop-Widget/actions/workflows/ci.yml)
-[![Release](https://github.com/Robertg761/HA-Desktop-Widget/actions/workflows/release.yml/badge.svg)](https://github.com/Robertg761/HA-Desktop-Widget/actions/workflows/release.yml)
+[![CI](https://github.com/Ci303/HA-Desktop-Widget/actions/workflows/ci.yml/badge.svg)](https://github.com/Ci303/HA-Desktop-Widget/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Downloads](https://img.shields.io/github/downloads/Robertg761/HA-Desktop-Widget/total?color=blue&label=downloads)](https://github.com/Robertg761/HA-Desktop-Widget/releases)
 
-- Download: https://github.com/Robertg761/HA-Desktop-Widget/releases
+- [Fork releases](https://github.com/Ci303/HA-Desktop-Widget/releases) (none published yet)
 
 - [![GitHub Sponsors](https://img.shields.io/badge/Sponsor-me-orange)](https://github.com/sponsors/robertg761)
 
 ![Main View](images/Main_View.png?v=20260601) ![Edit View](images/Edit_View.png?v=20260601) ![Light Adjust](images/Light_Adjust.png?v=20260601)
 
+## System information setup
+
+To display system readings using System Bridge:
+
+1. [Download and install System Bridge](https://system-bridge.timmo.dev/install/) on each computer you want to monitor, and keep it running.
+2. [Add the System Bridge integration in Home Assistant](https://www.home-assistant.io/integrations/system_bridge/).
+3. Select its sensor entities for your dashboard. CPU, memory, storage and GPU readings depend on the hardware and available sensors.
+
+System Bridge is optional if another integration already provides your system sensors. It is not required for lights, switches or other existing Home Assistant entities. The widget displays Home Assistant data; it does not collect hardware readings itself.
+
+You can find both setup links under **Settings → General → System information setup**. An unavailable reading does not by itself mean System Bridge is missing or the computer is offline.
+
 ## Settings: Personalization
+
+Choose **Settings → Personalization → Dashboard layout → Device panels** to show all Quick Access pages as coloured panels. **Tabbed pages** retains the original layout; neither option changes your saved entities or pages.
+
+On Windows, **Settings → General → Start in notification area at login** keeps the widget hidden when Windows starts it. Opening the app yourself or using its notification-area icon shows it normally. Startup and tray restores fit the window inside a connected monitor's working area, keeping its size whenever it fits.
+
+Under **Settings → General → Window & Behavior**, choose **Display on monitor** and enable **Fill monitor** to fill that screen without covering the taskbar. Turning it off restores your previous window size. A disconnected preferred monitor falls back to the primary monitor until it returns. These settings stay local to this computer; monitor selection is unavailable when a Wayland compositor controls window placement.
 
 ![Personalization Tab](images/Personalization_Tab.png?v=20260601)
 
@@ -86,7 +106,7 @@ Planned for a future release:
 
 ### Download & Install
 
-1. Go to the [Releases](https://github.com/Robertg761/HA-Desktop-Widget/releases) page and download the latest available build for your OS.
+1. Check the [fork Releases](https://github.com/Ci303/HA-Desktop-Widget/releases) page. Until a fork release is published, follow the [local build instructions](CONTRIBUTING.md#fork-builds).
 2. Windows: run the `.exe` installer or portable build. macOS: open the universal `.dmg` or `.zip` (older releases may be Apple Silicon-only). Linux: use the `.AppImage` or install the `.deb` package.
 3. Run the app and click the Settings button to configure your Home Assistant connection.
 

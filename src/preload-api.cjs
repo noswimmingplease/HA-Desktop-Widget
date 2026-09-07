@@ -148,9 +148,13 @@ function createElectronApi(ipcRenderer, platform) {
     previewWindowEffects: (effects) => invoke('preview-window-effects', effects),
     setAlwaysOnTop: (value) => invokeChecked('set-always-on-top', value),
     getWindowState: () => invoke('get-window-state'),
+    getWindowDisplays: () => invoke('get-window-displays'),
     getLoginItemSettings: () => invoke('get-login-item-settings'),
     setLoginItemSettings: (openAtLogin) => invoke('set-login-item-settings', openAtLogin),
     minimizeWindow: () => invoke('minimize-window'),
+    closeWindow: () => invoke('close-window'),
+    toggleMaximize: () => invoke('toggle-maximize'),
+    toggleFullScreen: () => invoke('toggle-full-screen'),
     focusWindow: () => invoke('focus-window'),
     focusDesktopPin: (entityId) => invoke('focus-desktop-pin', entityId),
     restartApp: () => invokeChecked('restart-app'),
@@ -199,6 +203,8 @@ function createElectronApi(ipcRenderer, platform) {
     onDesktopPinSnapshotNeeded: (callback) => subscribe('desktop-pin-snapshot-needed', callback),
     onDesktopPinActionRequested: (callback) => subscribe('desktop-pin-action-requested', callback),
     onEntityTileHotkeyRequested: (callback) => subscribe('entity-tile-hotkey-requested', callback),
+    onMaximizeStateChanged: (callback) => subscribe('maximize-state-changed', callback),
+    onFullScreenStateChanged: (callback) => subscribe('full-screen-state-changed', callback),
     onDesktopCompanionStateChanged: (callback) =>
       subscribe('desktop-companion-state-changed', callback),
   };

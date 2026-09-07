@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'feature/**']
   pull_request:
     branches: [main]
 
@@ -25,13 +25,13 @@ jobs:
       - name: Use Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: '20'
+          node-version: '24'
+
+      - name: Use supported npm
+        run: npm install --global npm@11.19.0
 
       - name: Audit dependency tree
-        # Production dependencies only: GHSA-mh99-v99m-4gvg has no fixed release
-        # for the electron-builder/jest/eslint toolchains, and forcing
-        # brace-expansion@5 tree-wide breaks the minimatch API packaging relies on.
-        run: npm audit --omit=dev --audit-level=high
+        run: npm audit --audit-level=high
 
       - name: Cancel remaining CI jobs
         if: failure()
@@ -48,8 +48,11 @@ jobs:
       - name: Use Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: '20'
+          node-version: '24'
           cache: 'npm'
+
+      - name: Use supported npm
+        run: npm install --global npm@11.19.0
 
       - name: Install dependencies
         run: npm ci
@@ -76,13 +79,13 @@ jobs:
         run: npm run build:panel
 
       - name: Package Windows app
-        run: npx electron-builder --dir --win --x64 --publish never
+        run: npx electron-builder --config electron-builder.fork.yml --config.directories.output=dist --dir --win --x64 --publish never
 
       - name: Smoke launch packaged Windows app
         shell: pwsh
         timeout-minutes: 2
         run: |
-          $executable = (Resolve-Path 'dist/win-unpacked/HA Desktop Widget.exe').Path
+          $executable = (Resolve-Path 'dist/win-unpacked/HA Network Dashboard.exe').Path
           $process = Start-Process -FilePath $executable -ArgumentList '--smoke-test' -PassThru -Wait `
             -RedirectStandardOutput smoke-stdout.log -RedirectStandardError smoke-stderr.log
           Get-Content smoke-stdout.log, smoke-stderr.log -ErrorAction SilentlyContinue
@@ -110,8 +113,11 @@ jobs:
       - name: Use Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: '20'
+          node-version: '24'
           cache: 'npm'
+
+      - name: Use supported npm
+        run: npm install --global npm@11.19.0
 
       - name: Install native build dependencies (Linux)
         run: |
@@ -151,7 +157,7 @@ jobs:
         run: npm run build:windowtolayer
 
       - name: Package Linux app
-        run: npx electron-builder --dir --linux --x64 --publish never
+        run: npx electron-builder --config electron-builder.fork.yml --config.directories.output=dist --dir --linux --x64 --publish never
 
       - name: Smoke launch packaged Linux app
         timeout-minutes: 2
@@ -161,7 +167,7 @@ jobs:
           sudo chown root:root dist/linux-unpacked/chrome-sandbox
           sudo chmod 4755 dist/linux-unpacked/chrome-sandbox
           timeout --kill-after=5s 30s xvfb-run -a dbus-run-session -- \
-            dist/linux-unpacked/home-assistant-widget --smoke-test
+            dist/linux-unpacked/ha-network-dashboard --smoke-test
 
       - name: Cancel remaining CI jobs
         if: failure()
@@ -178,8 +184,11 @@ jobs:
       - name: Use Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: '20'
+          node-version: '24'
           cache: 'npm'
+
+      - name: Use supported npm
+        run: npm install --global npm@11.19.0
 
       - name: Install dependencies
         run: npm ci
@@ -188,7 +197,7 @@ jobs:
         run: npm run build:renderer
 
       - name: Package universal macOS app
-        run: npx electron-builder --dir --mac --universal --publish never
+        run: npx electron-builder --config electron-builder.fork.yml --config.directories.output=dist --dir --mac --universal --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
 
@@ -196,12 +205,12 @@ jobs:
         shell: bash
         timeout-minutes: 2
         run: |
-          "dist/mac-universal/HA Desktop Widget.app/Contents/MacOS/HA Desktop Widget" --smoke-test
+          "dist/mac-universal/HA Network Dashboard.app/Contents/MacOS/HA Network Dashboard" --smoke-test
 
       - name: Verify universal macOS app
         shell: bash
         run: |
-          executable="dist/mac-universal/HA Desktop Widget.app/Contents/MacOS/HA Desktop Widget"
+          executable="dist/mac-universal/HA Network Dashboard.app/Contents/MacOS/HA Network Dashboard"
           architectures="$(lipo -archs "$executable")"
           if [[ " $architectures " != *" x86_64 "* || " $architectures " != *" arm64 "* ]]; then
             echo "Expected a universal macOS executable; found architectures: $architectures" >&2

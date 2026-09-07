@@ -243,6 +243,66 @@ describe('Renderer first-run Home Assistant authorization', () => {
     );
   });
 
+  it('tracks native full-screen and maximised presentation states independently', async () => {
+    await loadRenderer({
+      bodyHtml:
+        '<button id="maximize-btn"><svg><path class="window-maximize-icon"></path><path class="window-restore-icon" hidden></path></svg></button><main class="widget-content"></main>',
+      configureApi(api) {
+        api.platform = 'win32';
+        api.getWindowState.mockResolvedValue({
+          isMaximized: false,
+          isFullScreen: true,
+          fullScreenStabilityMode: true,
+        });
+      },
+    });
+
+    expect(document.body.classList.contains('fullscreen-stability-mode')).toBe(true);
+    expect(document.getElementById('maximize-btn').getAttribute('aria-label')).toBe('Maximise');
+    expect(document.getElementById('maximize-btn').disabled).toBe(true);
+    expect(document.querySelector('.window-maximize-icon').hasAttribute('hidden')).toBe(false);
+    expect(document.querySelector('.window-restore-icon').hasAttribute('hidden')).toBe(true);
+
+    triggerMockEvent('maximizeStateChanged', { isMaximized: true });
+
+    expect(document.getElementById('maximize-btn').getAttribute('aria-label')).toBe(
+      'Restore Window'
+    );
+    expect(document.querySelector('.window-maximize-icon').hasAttribute('hidden')).toBe(true);
+    expect(document.querySelector('.window-restore-icon').hasAttribute('hidden')).toBe(false);
+
+    triggerMockEvent('fullScreenStateChanged', {
+      isFullScreen: false,
+      fullScreenStabilityMode: false,
+    });
+
+    expect(document.body.classList.contains('fullscreen-stability-mode')).toBe(false);
+    expect(document.getElementById('maximize-btn').disabled).toBe(false);
+    expect(document.getElementById('maximize-btn').getAttribute('aria-label')).toBe(
+      'Restore Window'
+    );
+
+    triggerMockEvent('maximizeStateChanged', { isMaximized: false });
+
+    expect(document.getElementById('maximize-btn').getAttribute('aria-label')).toBe('Maximise');
+  });
+
+  it('uses the screen-fill control to maximise instead of entering native full-screen mode', async () => {
+    await loadRenderer({
+      bodyHtml:
+        '<button id="maximize-btn"><svg><path class="window-maximize-icon"></path><path class="window-restore-icon" hidden></path></svg></button><main class="widget-content"></main>',
+    });
+
+    document.getElementById('maximize-btn').click();
+    await flushAsync();
+
+    expect(mockElectronAPI.toggleMaximize).toHaveBeenCalledTimes(1);
+    expect(mockElectronAPI.toggleFullScreen).not.toHaveBeenCalled();
+    expect(document.getElementById('maximize-btn').getAttribute('aria-label')).toBe(
+      'Restore Window'
+    );
+  });
+
   it('uses a three-step browser authorization flow without asking for a token', async () => {
     await loadRenderer();
 

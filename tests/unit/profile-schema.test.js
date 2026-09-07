@@ -27,11 +27,29 @@ describe('normalizeProfileDocument', () => {
       ui: {
         theme: 'dark',
         accent: 'teal',
+        quickAccessPresentation: 'rooms',
         personalizationSectionsCollapsed: { colors: true },
         enableInteractionDebugLogs: true,
       },
     });
-    expect(normalized.ui).toEqual({ theme: 'dark', accent: 'teal' });
+    expect(normalized.ui).toEqual({
+      theme: 'dark',
+      accent: 'teal',
+      quickAccessPresentation: 'rooms',
+    });
+  });
+
+  test('does not synchronise the machine-specific login visibility setting', () => {
+    expect(
+      normalizeProfileDocument({
+        startInTrayAtLogin: true,
+        windowDisplayId: '123',
+        fillMonitor: true,
+        opacity: 0.9,
+      })
+    ).toEqual({
+      opacity: 0.9,
+    });
   });
 
   test('normalizes quick access tabs and derives favorites', () => {

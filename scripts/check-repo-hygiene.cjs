@@ -2,7 +2,8 @@ const fs = require('fs');
 const { spawnSync } = require('child_process');
 
 const DEFAULT_MAX_TRACKED_FILE_BYTES = 10 * 1024 * 1024;
-const FORBIDDEN_BUILD_PATH = /^(?:dist|dist-renderer|out)\//i;
+const FORBIDDEN_BUILD_PATH =
+  /^(?:dist|dist-local|dist-fork|dist-renderer|dist-preload|dist-panel|out)\//i;
 const FORBIDDEN_ARTIFACT_PATH =
   /(?:^|\/)(?:builder-debug\.yml|[^/]+\.(?:exe|dmg|appimage|deb|zip|7z|blockmap|tar\.gz))$/i;
 

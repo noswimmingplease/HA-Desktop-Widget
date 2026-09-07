@@ -245,7 +245,7 @@ describe('platform helpers', () => {
     expect(hasGlobalShortcutFallback({ platform: 'darwin' })).toBe(true);
   });
 
-  test('keeps Windows transparent and resizable without frosted glass', () => {
+  test('keeps the Windows main window opaque with a native resize frame', () => {
     expect(
       getMainWindowVisualOptions({
         platform: 'win32',
@@ -253,8 +253,8 @@ describe('platform helpers', () => {
         transparencyOptions: { transparent: true, backgroundColor: '#00000000' },
       })
     ).toEqual({
-      transparent: true,
-      backgroundColor: '#00000000',
+      transparent: false,
+      backgroundColor: '#28282d',
       thickFrame: true,
     });
   });
@@ -267,8 +267,8 @@ describe('platform helpers', () => {
         transparencyOptions: { transparent: true, backgroundColor: '#00000000' },
       })
     ).toEqual({
-      transparent: true,
-      backgroundColor: '#00000000',
+      transparent: false,
+      backgroundColor: '#28282d',
       thickFrame: true,
       backgroundMaterial: 'acrylic',
     });

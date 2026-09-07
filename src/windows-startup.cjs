@@ -1,4 +1,20 @@
 const path = require('path');
+const LOGIN_STARTUP_ARG = '--login-startup';
+
+function shouldStartInTrayAtLogin({
+  argv = [],
+  enabled = false,
+  platform = process.platform,
+} = {}) {
+  return (
+    platform === 'win32' &&
+    enabled === true &&
+    Array.isArray(argv) &&
+    argv.includes(LOGIN_STARTUP_ARG) &&
+    !argv.includes('--smoke-test') &&
+    !argv.includes('--fullscreen')
+  );
+}
 
 function stripSurroundingQuotes(value) {
   const text = String(value || '').trim();
@@ -45,6 +61,8 @@ function getWindowsStartupRegistryName(pkg = {}, fallbackName = '') {
 }
 
 module.exports = {
+  LOGIN_STARTUP_ARG,
+  shouldStartInTrayAtLogin,
   getWindowsStartupRegistryName,
   hasEnabledLaunchItemForExecutable,
   isWindowsLoginItemEnabled,

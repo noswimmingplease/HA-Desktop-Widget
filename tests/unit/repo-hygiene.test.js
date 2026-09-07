@@ -11,6 +11,10 @@ describe('repository hygiene guard', () => {
   it('rejects generated directories and packaged artifacts', () => {
     const files = [
       'dist/latest.yml',
+      'dist-local/win-unpacked/resources/app.asar',
+      'dist-fork/latest.yml',
+      'dist-preload/preload.cjs',
+      'dist-panel/index.html',
       'dist-renderer/renderer.bundle.js',
       'release/App.exe',
       'release/AppImage.zip',

@@ -37,8 +37,11 @@ jobs:
       - name: Use Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: '20'
+          node-version: '24'
           cache: 'npm'
+
+      - name: Use supported npm
+        run: npm install --global npm@11.19.0
 
       - id: release_meta
         name: Resolve release version from tag
@@ -189,10 +192,7 @@ jobs:
         run: npm run test:coverage -- --runInBand
 
       - name: Audit dependency tree
-        # Production dependencies only: GHSA-mh99-v99m-4gvg has no fixed release
-        # for the electron-builder/jest/eslint toolchains, and forcing
-        # brace-expansion@5 tree-wide breaks the minimatch API packaging relies on.
-        run: npm audit --omit=dev --audit-level=high
+        run: npm audit --audit-level=high
 
   build:
     needs: validate
@@ -207,8 +207,11 @@ jobs:
       - name: Use Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: '20'
+          node-version: '24'
           cache: 'npm'
+
+      - name: Use supported npm
+        run: npm install --global npm@11.19.0
 
       - name: Align package versions to release tag
         shell: pwsh
@@ -248,8 +251,11 @@ jobs:
       - name: Use Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: '20'
+          node-version: '24'
           cache: 'npm'
+
+      - name: Use supported npm
+        run: npm install --global npm@11.19.0
 
       - name: Align package versions to release tag
         shell: bash
@@ -279,13 +285,13 @@ jobs:
             # It does not assert Apple Developer-ID signing or notarization.
             codesign --verify --deep --strict --verbose=4 "$app"
 
-            executable="$app/Contents/MacOS/HA Desktop Widget"
+            executable="$app/Contents/MacOS/HA Network Dashboard"
             architectures="$(lipo -archs "$executable")"
             if [[ " $architectures " != *" x86_64 "* || " $architectures " != *" arm64 "* ]]; then
               echo "Expected a universal macOS executable; found architectures: $architectures" >&2
               exit 1
             fi
-          done < <(find dist -type d -name 'HA Desktop Widget.app' -print0)
+          done < <(find dist -type d -name 'HA Network Dashboard.app' -print0)
 
           if [[ "$found_app" -eq 0 ]]; then
             echo "No packaged macOS .app bundle found under dist." >&2
@@ -322,8 +328,11 @@ jobs:
       - name: Use Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: '20'
+          node-version: '24'
           cache: 'npm'
+
+      - name: Use supported npm
+        run: npm install --global npm@11.19.0
 
       - name: Install Linux packaging dependencies
         run: |
@@ -466,8 +475,8 @@ jobs:
           for artifact in "${artifacts[@]}"; do
             dir="$(dirname "$artifact")"
             base="$(basename "$artifact")"
-            normalized="${base/#HA Desktop Widget-/HA-Desktop-Widget-}"
-            normalized="${normalized/#HA.Desktop.Widget-/HA-Desktop-Widget-}"
+            normalized="${base/#HA Network Dashboard-/HA-Network-Dashboard-}"
+            normalized="${normalized/#HA.Network.Dashboard-/HA-Network-Dashboard-}"
             if [[ "$normalized" != "$base" ]]; then
               mv "$artifact" "$dir/$normalized"
             fi
@@ -580,8 +589,11 @@ jobs:
       - name: Use Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: '20'
+          node-version: '24'
           cache: 'npm'
+
+      - name: Use supported npm
+        run: npm install --global npm@11.19.0
 
       - name: Align package versions to release tag
         shell: bash

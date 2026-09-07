@@ -2879,6 +2879,9 @@ function buildProfileSyncFilePathFromFolder(folderPath) {
 }
 
 function ensureProfileSyncConfig(targetConfig = state.CONFIG) {
+  // Status IPC can arrive before the initial getConfig request completes.
+  // Render safe defaults without creating a partial config that could be saved.
+  if (!targetConfig || typeof targetConfig !== 'object') return getDefaultProfileSyncConfig();
   targetConfig.profileSync = {
     ...getDefaultProfileSyncConfig(),
     ...(targetConfig.profileSync || {}),
@@ -3282,6 +3285,29 @@ function bindSupportDevelopmentUi() {
       } catch (error) {
         log.error('Failed to open GitHub Sponsors link:', error);
         showToast(t('Could not open GitHub Sponsors. Please try again.'), 'error', 3500);
+      }
+    };
+  }
+}
+
+function bindSystemInformationHelpUi() {
+  const links = {
+    'system-bridge-download-btn': 'https://system-bridge.timmo.dev/install/',
+    'system-bridge-setup-btn': 'https://www.home-assistant.io/integrations/system_bridge/',
+  };
+  for (const [id, url] of Object.entries(links)) {
+    const button = document.getElementById(id);
+    if (!button) continue;
+    button.onclick = async () => {
+      button.disabled = true;
+      try {
+        const result = await window.electronAPI.openExternal(url);
+        if (result?.success === false) throw new Error(result.error || 'Help link failed');
+      } catch (error) {
+        log.error('Failed to open system information help:', error);
+        showToast(t('Could not open the setup guide. Please try again.'), 'error', 3000);
+      } finally {
+        button.disabled = false;
       }
     };
   }
@@ -3869,6 +3895,7 @@ async function openSettings(uiHooks) {
     const haUrl = document.getElementById('ha-url');
     const haToken = document.getElementById('ha-token');
     const alwaysOnTop = document.getElementById('always-on-top');
+    const closeButtonAction = document.getElementById('close-button-action');
     const opacitySlider = document.getElementById('opacity-slider');
     const opacityValue = document.getElementById('opacity-value');
     const frostedGlass = document.getElementById('frosted-glass');
@@ -3898,6 +3925,14 @@ async function openSettings(uiHooks) {
     setSettingsConnectionTestBusy(false);
     populateWeatherEntitySelect();
     if (alwaysOnTop) alwaysOnTop.checked = state.CONFIG.alwaysOnTop !== false;
+    if (closeButtonAction) {
+      closeButtonAction.value = state.CONFIG.closeButtonAction === 'quit' ? 'quit' : 'minimize';
+    }
+    const quickAccessPresentation = document.getElementById('quick-access-presentation');
+    if (quickAccessPresentation) {
+      quickAccessPresentation.value =
+        state.CONFIG.ui?.quickAccessPresentation === 'rooms' ? 'rooms' : 'tabs';
+    }
     if (frostedGlass) frostedGlass.checked = !!state.CONFIG.frostedGlass;
     if (allowPrereleaseUpdates) {
       allowPrereleaseUpdates.checked = state.CONFIG.updates?.allowPrerelease === true;
@@ -3905,18 +3940,71 @@ async function openSettings(uiHooks) {
 
     // Initialize "Start at login" checkbox
     const startWithWindows = document.getElementById('start-with-windows');
+    const startInTrayAtLogin = document.getElementById('start-in-tray-at-login');
+    const startupTrayGroup = document.getElementById('start-in-tray-at-login-group');
+    const supportsStartupTray = window.electronAPI.platform === 'win32';
+    if (startupTrayGroup) startupTrayGroup.hidden = !supportsStartupTray;
+    if (startInTrayAtLogin) startInTrayAtLogin.checked = state.CONFIG.startInTrayAtLogin === true;
     if (startWithWindows) {
       try {
         const loginSettings = await window.electronAPI.getLoginItemSettings();
         startWithWindows.checked = loginSettings.openAtLogin || false;
+        startWithWindows.disabled = loginSettings.supported === false;
       } catch (error) {
         log.error('Failed to get login item settings:', error);
         startWithWindows.checked = false;
+        startWithWindows.disabled = true;
+      }
+      const syncStartupTrayEnabled = () => {
+        if (startInTrayAtLogin)
+          startInTrayAtLogin.disabled =
+            !supportsStartupTray || startWithWindows.disabled || !startWithWindows.checked;
+      };
+      startWithWindows.onchange = syncStartupTrayEnabled;
+      syncStartupTrayEnabled();
+    }
+
+    const displaySettings = document.getElementById('window-display-settings');
+    const displaySelect = document.getElementById('window-display-id');
+    const fillMonitor = document.getElementById('fill-monitor');
+    if (displaySettings && displaySelect && fillMonitor) {
+      displaySettings.hidden = true;
+      displaySelect.disabled = true;
+      fillMonitor.disabled = true;
+      try {
+        const result = await window.electronAPI.getWindowDisplays();
+        if (result.supported && result.displays?.length) {
+          displaySelect.replaceChildren();
+          const addOption = (value, label) => {
+            const option = document.createElement('option');
+            option.value = value;
+            option.textContent = label;
+            displaySelect.appendChild(option);
+          };
+          addOption('', t('Automatic (last position)'));
+          addOption('primary', t('Primary monitor'));
+          result.displays.forEach((display, index) => {
+            const label = `${t('Monitor {{number}}', { number: index + 1 })}: ${display.label || display.id} — ${display.width} × ${display.height}`;
+            addOption(display.id, display.primary ? `${label} (${t('Primary monitor')})` : label);
+          });
+          const savedId = String(state.CONFIG.windowDisplayId || '');
+          if (savedId && savedId !== 'primary' && !result.displays.some((d) => d.id === savedId)) {
+            addOption(savedId, t('Disconnected monitor ({{id}})', { id: savedId }));
+          }
+          displaySelect.value = savedId;
+          fillMonitor.checked = state.CONFIG.fillMonitor === true;
+          displaySettings.hidden = false;
+          displaySelect.disabled = false;
+          fillMonitor.disabled = false;
+        }
+      } catch (error) {
+        log.warn('Unable to read available monitors:', error);
       }
     }
 
     bindLanguageSettingsUi();
     bindAppearanceSettingsUi();
+    bindSystemInformationHelpUi();
     syncLanguageSelectOptions();
     renderLanguagePackList();
     updateLanguageSummaryText();
@@ -4399,6 +4487,7 @@ async function saveSettings() {
     const haUrl = document.getElementById('ha-url');
     const haToken = document.getElementById('ha-token');
     const alwaysOnTop = document.getElementById('always-on-top');
+    const closeButtonAction = document.getElementById('close-button-action');
     const opacitySlider = document.getElementById('opacity-slider');
     const frostedGlass = document.getElementById('frosted-glass');
     const enableInteractionDebugLogs = document.getElementById('enable-interaction-debug-logs');
@@ -4474,6 +4563,19 @@ async function saveSettings() {
       }
     }
     if (alwaysOnTop) nextConfig.alwaysOnTop = alwaysOnTop.checked;
+    const displaySelect = document.getElementById('window-display-id');
+    const fillMonitor = document.getElementById('fill-monitor');
+    if (displaySelect && !displaySelect.disabled) {
+      nextConfig.windowDisplayId = displaySelect.value || null;
+    }
+    if (fillMonitor && !fillMonitor.disabled) nextConfig.fillMonitor = fillMonitor.checked;
+    const startInTrayAtLogin = document.getElementById('start-in-tray-at-login');
+    if (startInTrayAtLogin && window.electronAPI.platform === 'win32') {
+      nextConfig.startInTrayAtLogin = startInTrayAtLogin.checked;
+    }
+    if (closeButtonAction) {
+      nextConfig.closeButtonAction = closeButtonAction.value === 'quit' ? 'quit' : 'minimize';
+    }
     if (frostedGlass) nextConfig.frostedGlass = frostedGlass.checked;
     delete nextConfig.frostedGlassStrength;
     delete nextConfig.frostedGlassTint;
@@ -4481,6 +4583,11 @@ async function saveSettings() {
     const weatherEffectsEnabled = document.getElementById('weather-effects-enabled');
     const weatherOverrideSelect = document.getElementById('weather-override-select');
     nextConfig.ui = nextConfig.ui || {};
+    const quickAccessPresentation = document.getElementById('quick-access-presentation');
+    if (quickAccessPresentation) {
+      nextConfig.ui.quickAccessPresentation =
+        quickAccessPresentation.value === 'rooms' ? 'rooms' : 'tabs';
+    }
     const frostedGlassEnabled = !!nextConfig.frostedGlass;
     nextConfig.ui.weatherEffectsEnabled = weatherEffectsEnabled
       ? frostedGlassEnabled && !!weatherEffectsEnabled.checked
@@ -4728,7 +4835,7 @@ async function saveSettings() {
         nextProfileSync.rememberPassphrase = resolvedRemembered;
         nextProfileSync.passphraseEncrypted = resolvedEncrypted;
 
-        const persistedProfileSync = state.CONFIG.profileSync || {};
+        const persistedProfileSync = state.CONFIG?.profileSync || {};
         if (
           resolvedRemembered !== persistedProfileSync.rememberPassphrase ||
           resolvedEncrypted !== persistedProfileSync.passphraseEncrypted
@@ -4770,7 +4877,7 @@ async function saveSettings() {
       }
     }
 
-    if (startWithWindows) {
+    if (startWithWindows && !startWithWindows.disabled) {
       try {
         const result = await window.electronAPI.setLoginItemSettings(startWithWindows.checked);
         if (!result.success) {
@@ -4793,8 +4900,8 @@ async function saveSettings() {
     const shouldClearSavedPassphrase =
       !!window.electronAPI?.clearProfileSyncPassphrase &&
       !profileSyncCredentialOperationFailed &&
-      !state.CONFIG.profileSync?.remoteRewritePending &&
-      typeof state.CONFIG.profileSync?.encryptionChangePending !== 'boolean' &&
+      !state.CONFIG?.profileSync?.remoteRewritePending &&
+      typeof state.CONFIG?.profileSync?.encryptionChangePending !== 'boolean' &&
       (!nextProfileSync.encryptionEnabled ||
         (nextProfileSync.encryptionEnabled &&
           !nextProfileSync.rememberPassphrase &&

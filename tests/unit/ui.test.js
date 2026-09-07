@@ -2456,6 +2456,352 @@ describe('UI Rendering - Selective Business Logic Tests (ui.js)', () => {
       expect(sensorTile.title).toBe('Office Temperature: 29.3 °C');
     });
 
+    it('proportionally down-fits long numeric readouts without enlarging short ones', () => {
+      expect(
+        ui.computeQuickAccessSensorReadoutFit({
+          availableWidth: 100,
+          valueWidth: 48,
+          unitWidth: 10,
+          gapWidth: 3,
+          preferredValueFontSize: 24,
+          preferredUnitFontSize: 12,
+        })
+      ).toEqual({
+        fitted: false,
+        scale: 1,
+        valueFontSize: 24,
+        unitFontSize: 12,
+      });
+
+      const fitted = ui.computeQuickAccessSensorReadoutFit({
+        availableWidth: 76,
+        valueWidth: 92,
+        unitWidth: 32,
+        gapWidth: 3,
+        preferredValueFontSize: 28,
+        preferredUnitFontSize: 14,
+      });
+
+      expect(fitted.fitted).toBe(true);
+      expect(fitted.scale).toBeCloseTo(72 / 124, 5);
+      expect(fitted.valueFontSize).toBeCloseTo(28 * fitted.scale, 5);
+      expect(fitted.unitFontSize).toBeCloseTo(14 * fitted.scale, 5);
+      expect(92 * fitted.scale + 32 * fitted.scale + 3).toBeLessThanOrEqual(75);
+
+      expect(
+        ui.computeQuickAccessSensorReadoutFit({
+          availableWidth: 0,
+          valueWidth: 92,
+          preferredValueFontSize: 24,
+        })
+      ).toEqual({
+        fitted: false,
+        scale: 1,
+        valueFontSize: 24,
+        unitFontSize: 0,
+      });
+
+      const unitless = ui.computeQuickAccessSensorReadoutFit({
+        availableWidth: 76,
+        valueWidth: 80,
+        gapWidth: 50,
+        preferredValueFontSize: 24,
+      });
+      expect(unitless.scale).toBeCloseTo(75 / 80, 5);
+    });
+
+    it('fits the complete value and unit, then restores the preferred size when widened', () => {
+      const entityId = 'sensor.pi_hole_mu_dns_queries';
+      state.setConfig({
+        ...state.CONFIG,
+        favoriteEntities: [entityId],
+        customEntityNames: { [entityId]: 'Pi-hole MU Traffic Total' },
+        quickAccessTileOptions: { [entityId]: { valueSize: 'extra-large' } },
+      });
+      state.setStates({
+        [entityId]: {
+          entity_id: entityId,
+          state: '654321',
+          attributes: {
+            friendly_name: 'Pi-hole MU DNS Queries',
+            unit_of_measurement: 'queries',
+          },
+        },
+      });
+
+      ui.renderActiveTab();
+
+      const tile = document.querySelector(`[data-entity-id="${entityId}"]`);
+      const readout = tile.querySelector('.control-sensor-readout');
+      const value = readout.querySelector('.control-sensor-value');
+      const unit = readout.querySelector('.control-sensor-unit');
+      let availableWidth = 76;
+      let measuredValueWidth = 92;
+      Object.defineProperty(readout, 'clientWidth', {
+        configurable: true,
+        get: () => availableWidth,
+      });
+      Object.defineProperty(value, 'scrollWidth', {
+        configurable: true,
+        get: () => measuredValueWidth,
+      });
+      Object.defineProperty(unit, 'scrollWidth', { configurable: true, get: () => 32 });
+      const computedStyleSpy = jest.spyOn(window, 'getComputedStyle').mockImplementation((node) => {
+        if (node === readout) return { columnGap: '3px', gap: '3px' };
+        if (node === value) return { fontSize: '28px' };
+        if (node === unit) return { fontSize: '14px' };
+        return { columnGap: '0px', gap: '0px', fontSize: '16px' };
+      });
+
+      expect(ui.fitQuickAccessSensorReadout(readout)).toBe(true);
+      expect(value.textContent).toBe('654321');
+      expect(unit.textContent).toBe('queries');
+      expect(readout.dataset.valueFit).toBe('reduced');
+      expect(value.style.fontSize).not.toBe('');
+      expect(unit.style.fontSize).not.toBe('');
+      expect(tile.dataset.valueSize).toBe('extra-large');
+      expect(state.CONFIG.quickAccessTileOptions[entityId].valueSize).toBe('extra-large');
+
+      availableWidth = 160;
+      expect(ui.fitQuickAccessSensorReadout(readout)).toBe(false);
+      expect(readout.dataset.valueFit).toBeUndefined();
+      expect(value.style.fontSize).toBe('');
+      expect(unit.style.fontSize).toBe('');
+      expect(value.textContent).toBe('654321');
+      expect(unit.textContent).toBe('queries');
+
+      availableWidth = 76;
+      measuredValueWidth = 108;
+      const updatedEntity = {
+        ...state.STATES[entityId],
+        state: '7654321',
+      };
+      state.setEntityState(updatedEntity);
+      ui.updateEntityInUI(updatedEntity);
+
+      expect(document.querySelector(`[data-entity-id="${entityId}"]`)).toBe(tile);
+      expect(value.textContent).toBe('7654321');
+      expect(unit.textContent).toBe('queries');
+      expect(readout.dataset.valueFit).toBe('reduced');
+      expect(value.style.fontSize).not.toBe('');
+      computedStyleSpy.mockRestore();
+    });
+
+    it('does not configure numeric values to ellipsise', () => {
+      const valueRule = desktopPinStyles.match(
+        /#quick-controls \.control-item\.sensor-numeric-entity \.control-sensor-value \{([^}]*)\}/
+      );
+      expect(valueRule).toBeTruthy();
+      expect(valueRule[1]).toContain('flex: 0 0 auto');
+      expect(valueRule[1]).toContain('text-overflow: clip');
+      expect(valueRule[1]).not.toContain('text-overflow: ellipsis');
+    });
+
+    it('renders and live-updates timestamp sensors as compact local date and time values', () => {
+      const entityId = 'sensor.gamma_boot_time';
+      const initialState = '2026-08-30T12:21:45+00:00';
+      const updatedState = '2025-08-30T12:21:45+00:00';
+      const formatExpected = (value) => {
+        const timestamp = new Date(value);
+        return timestamp.toLocaleString('en', {
+          day: 'numeric',
+          month: 'short',
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false,
+        });
+      };
+      const formatExact = (value) => {
+        const timestamp = new Date(value);
+        return timestamp.toLocaleString('en', {
+          day: 'numeric',
+          month: 'short',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+          hour12: false,
+        });
+      };
+      const initialEntity = {
+        entity_id: entityId,
+        state: initialState,
+        attributes: {
+          friendly_name: 'Gamma Boot Time',
+          device_class: 'timestamp',
+        },
+      };
+      state.setConfig({
+        ...state.CONFIG,
+        favoriteEntities: [entityId],
+        ui: {
+          ...state.CONFIG.ui,
+          timeFormat: '24-hour',
+          use24HourClock: true,
+        },
+      });
+      state.setStates({ [entityId]: initialEntity });
+
+      ui.renderActiveTab();
+
+      const initialTile = document.querySelector(
+        `.control-item.sensor-timestamp-entity[data-entity-id="${entityId}"]`
+      );
+      expect(initialTile).toBeTruthy();
+      expect(initialTile.querySelector('.control-state').textContent).toBe(
+        formatExpected(initialState)
+      );
+      expect(initialTile.querySelector('.control-state').textContent).not.toMatch(/[T+]/);
+      expect(initialTile.title).toBe(`Gamma Boot Time: ${formatExact(initialState)}`);
+      expect(initialTile.querySelector('.control-state').getAttribute('aria-label')).toBe(
+        formatExact(initialState)
+      );
+
+      const updatedEntity = { ...initialEntity, state: updatedState };
+      state.setEntityState(updatedEntity);
+      ui.updateEntityInUI(updatedEntity);
+
+      const updatedTile = document.querySelector(
+        `.control-item.sensor-timestamp-entity[data-entity-id="${entityId}"]`
+      );
+      expect(updatedTile).toBe(initialTile);
+      expect(updatedTile.querySelector('.control-state').textContent).toBe(
+        formatExpected(updatedState)
+      );
+      expect(updatedTile.title).toBe(`Gamma Boot Time: ${formatExact(updatedState)}`);
+    });
+
+    it.each(['not-a-date', 'unknown', 'unavailable'])(
+      'keeps an invalid timestamp sensor state unchanged (%s)',
+      (sensorState) => {
+        const entityId = 'sensor.gamma_boot_time';
+        state.setConfig({
+          ...state.CONFIG,
+          favoriteEntities: [entityId],
+        });
+        state.setStates({
+          [entityId]: {
+            entity_id: entityId,
+            state: sensorState,
+            attributes: {
+              friendly_name: 'Gamma Boot Time',
+              device_class: 'timestamp',
+            },
+          },
+        });
+
+        ui.renderActiveTab();
+
+        const sensorTile = document.querySelector(
+          `.control-item.sensor-entity[data-entity-id="${entityId}"]`
+        );
+        expect(sensorTile).toBeTruthy();
+        expect(sensorTile.classList.contains('sensor-timestamp-entity')).toBe(false);
+        expect(sensorTile.querySelector('.control-state').textContent).toBe(sensorState);
+        expect(sensorTile.textContent).not.toContain('Invalid Date');
+      }
+    );
+
+    it('hides redundant count units from quick access values but keeps their semantic text', () => {
+      const entities = {
+        'sensor.pi_hole_mu_seen_clients': {
+          entity_id: 'sensor.pi_hole_mu_seen_clients',
+          state: '7',
+          attributes: {
+            friendly_name: 'Pi-hole MU Seen Clients',
+            unit_of_measurement: 'clients',
+          },
+        },
+        'sensor.pi_hole_mu_ads_blocked': {
+          entity_id: 'sensor.pi_hole_mu_ads_blocked',
+          state: '182345',
+          attributes: {
+            friendly_name: 'Pi-hole MU Ads Blocked',
+            unit_of_measurement: 'ads',
+          },
+        },
+        'sensor.pi_hole_mu_dns_queries': {
+          entity_id: 'sensor.pi_hole_mu_dns_queries',
+          state: '654321',
+          attributes: {
+            friendly_name: 'Pi-hole MU DNS Queries',
+            unit_of_measurement: 'queries',
+          },
+        },
+        'sensor.pi_hole_mu_unique_domains': {
+          entity_id: 'sensor.pi_hole_mu_unique_domains',
+          state: '321',
+          attributes: {
+            friendly_name: 'Pi-hole MU DNS Unique Domains',
+            unit_of_measurement: 'domains',
+          },
+        },
+      };
+      state.setConfig({
+        ...state.CONFIG,
+        favoriteEntities: Object.keys(entities),
+      });
+      state.setStates(entities);
+
+      ui.renderActiveTab();
+
+      [
+        ['sensor.pi_hole_mu_seen_clients', '7', 'clients'],
+        ['sensor.pi_hole_mu_ads_blocked', '182345', 'ads'],
+        ['sensor.pi_hole_mu_dns_queries', '654321', 'queries'],
+        ['sensor.pi_hole_mu_unique_domains', '321', 'domains'],
+      ].forEach(([entityId, value, unit]) => {
+        const sensorTile = document.querySelector(
+          `.control-item.sensor-numeric-entity[data-entity-id="${entityId}"]`
+        );
+        expect(sensorTile).toBeTruthy();
+        expect(sensorTile.querySelector('.control-sensor-value').textContent).toBe(value);
+        expect(sensorTile.querySelector('.control-sensor-unit')).toBeNull();
+        expect(sensorTile.querySelector('.control-state').getAttribute('aria-label')).toBe(
+          `${value} ${unit}`
+        );
+        expect(sensorTile.title).toContain(`${value} ${unit}`);
+      });
+
+      document
+        .querySelector('.control-item[data-entity-id="sensor.pi_hole_mu_seen_clients"]')
+        .click();
+      expect(document.querySelector('.sensor-detail-modal .sensor-detail-unit').textContent).toBe(
+        'clients'
+      );
+    });
+
+    it('keeps a count unit when the effective tile name does not repeat it', () => {
+      const entityId = 'sensor.pi_hole_mu_dns_queries';
+      state.setConfig({
+        ...state.CONFIG,
+        favoriteEntities: [entityId],
+        customEntityNames: {
+          [entityId]: 'Pi-hole MU Traffic Total',
+        },
+      });
+      state.setStates({
+        [entityId]: {
+          entity_id: entityId,
+          state: '654321',
+          attributes: {
+            friendly_name: 'Pi-hole MU DNS Queries',
+            unit_of_measurement: 'queries',
+          },
+        },
+      });
+
+      ui.renderActiveTab();
+
+      const sensorTile = document.querySelector(
+        `.control-item.sensor-numeric-entity[data-entity-id="${entityId}"]`
+      );
+      expect(sensorTile.querySelector('.control-name').textContent).toBe(
+        'Pi-hole MU Traffic Total'
+      );
+      expect(sensorTile.querySelector('.control-sensor-unit').textContent).toBe('queries');
+    });
+
     it('saves quick access tile value font size from the pencil settings modal', async () => {
       const config = state.CONFIG;
       config.favoriteEntities = ['sensor.office_temperature'];
@@ -2783,6 +3129,223 @@ describe('UI Rendering - Selective Business Logic Tests (ui.js)', () => {
       expect(sensorTile).toBeTruthy();
       expect(sensorTile.querySelector('.control-sensor-value').textContent).toBe('30.6');
       expect(sensorTile.querySelector('.control-sensor-unit').textContent).toBe('°C');
+    });
+
+    it('keeps a redundant count unit hidden after live entity updates', () => {
+      const entityId = 'sensor.pi_hole_mu_ads_blocked';
+      state.setConfig({
+        ...state.CONFIG,
+        favoriteEntities: [entityId],
+      });
+      state.setStates({
+        [entityId]: {
+          entity_id: entityId,
+          state: '182345',
+          attributes: {
+            friendly_name: 'Pi-hole MU Ads Blocked',
+            unit_of_measurement: 'ads',
+          },
+        },
+      });
+
+      ui.renderActiveTab();
+      ui.updateEntityInUI({
+        entity_id: entityId,
+        state: '182400',
+        attributes: {
+          friendly_name: 'Pi-hole MU Ads Blocked',
+          unit_of_measurement: 'ads',
+        },
+      });
+
+      const sensorTile = document.querySelector(
+        `.control-item.sensor-numeric-entity[data-entity-id="${entityId}"]`
+      );
+      expect(sensorTile.querySelector('.control-sensor-value').textContent).toBe('182400');
+      expect(sensorTile.querySelector('.control-sensor-unit')).toBeNull();
+      expect(sensorTile.querySelector('.control-state').getAttribute('aria-label')).toBe(
+        '182400 ads'
+      );
+      expect(sensorTile.title).toBe('Pi-hole MU Ads Blocked: 182400 ads');
+    });
+
+    it('updates a live sensor sparkline without replacing its DOM nodes', async () => {
+      const now = Date.now();
+      const sampleTime = (hoursAgo) => new Date(now - hoursAgo * 3600000).toISOString();
+      const entityId = 'sensor.sparkline_identity';
+      const initialEntity = {
+        entity_id: entityId,
+        state: '20',
+        last_changed: sampleTime(1),
+        attributes: {
+          friendly_name: 'Sparkline Identity',
+          unit_of_measurement: '°C',
+          device_class: 'temperature',
+        },
+      };
+      state.setConfig({
+        ...state.CONFIG,
+        favoriteEntities: [entityId],
+      });
+      state.setStates({ [entityId]: initialEntity });
+      mockRequest.mockResolvedValue({
+        [entityId]: [{ state: '19', last_changed: sampleTime(2) }, initialEntity],
+      });
+
+      ui.renderActiveTab();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      const tile = document.querySelector(`.control-item[data-entity-id="${entityId}"]`);
+      const sparkline = tile.querySelector('.control-sensor-sparkline');
+      const svg = sparkline.querySelector('.control-sensor-sparkline-svg');
+      const polyline = svg.querySelector('polyline');
+      const initialPoints = polyline.getAttribute('points');
+
+      ui.updateEntityInUI({
+        ...initialEntity,
+        state: '21',
+        last_changed: sampleTime(0),
+      });
+
+      expect(tile.querySelector('.control-sensor-sparkline')).toBe(sparkline);
+      expect(tile.querySelector('.control-sensor-sparkline-svg')).toBe(svg);
+      expect(tile.querySelector('.control-sensor-sparkline-svg polyline')).toBe(polyline);
+      expect(polyline.getAttribute('points')).not.toBe(initialPoints);
+    });
+
+    it('does not let a pending history response restore a newly excluded chart', async () => {
+      const entityId = 'sensor.sparkline_reclassified';
+      const initialEntity = {
+        entity_id: entityId,
+        state: '50',
+        attributes: {
+          friendly_name: 'CPU Temperature',
+          unit_of_measurement: '°C',
+          device_class: 'temperature',
+          state_class: 'measurement',
+        },
+      };
+      state.setConfig({ ...state.CONFIG, favoriteEntities: [entityId] });
+      state.setStates({ [entityId]: initialEntity });
+
+      let resolveHistory;
+      mockRequest.mockReturnValue(
+        new Promise((resolve) => {
+          resolveHistory = resolve;
+        })
+      );
+
+      ui.renderActiveTab();
+      const tile = document.querySelector(`[data-entity-id="${entityId}"]`);
+      expect(tile.classList.contains('sensor-chart-entity')).toBe(true);
+
+      const reclassifiedEntity = {
+        ...initialEntity,
+        attributes: {
+          friendly_name: 'SSD Storage Used',
+          unit_of_measurement: '%',
+          state_class: 'measurement',
+        },
+      };
+      state.setStates({ [entityId]: reclassifiedEntity });
+      ui.updateEntityInUI(reclassifiedEntity);
+      expect(tile.classList.contains('sensor-chart-entity')).toBe(false);
+      expect(tile.querySelector('.control-sensor-sparkline')).toBeNull();
+
+      resolveHistory({
+        [entityId]: [
+          { state: '49', last_changed: '2026-08-31T07:00:00.000Z' },
+          { state: '50', last_changed: '2026-08-31T08:00:00.000Z' },
+        ],
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(tile.classList.contains('sensor-chart-entity')).toBe(false);
+      expect(tile.querySelector('.control-sensor-sparkline')).toBeNull();
+    });
+
+    it('keeps storage and raw counters as values without requesting automatic charts', async () => {
+      const storageId = 'sensor.rho_ssd_storage_used';
+      const counterId = 'sensor.pi_hole_dns_queries';
+      const temperatureId = 'sensor.rho_cpu_temperature';
+      const entities = {
+        [storageId]: {
+          entity_id: storageId,
+          state: '6.6',
+          attributes: {
+            friendly_name: 'RHO SSD Storage Used',
+            unit_of_measurement: '%',
+            state_class: 'measurement',
+          },
+        },
+        [counterId]: {
+          entity_id: counterId,
+          state: '60000',
+          attributes: {
+            friendly_name: 'Pi-hole DNS Queries',
+            unit_of_measurement: 'queries',
+            state_class: 'measurement',
+          },
+        },
+        [temperatureId]: {
+          entity_id: temperatureId,
+          state: '50',
+          attributes: {
+            friendly_name: 'RHO CPU Temperature',
+            unit_of_measurement: '°C',
+            device_class: 'temperature',
+            state_class: 'measurement',
+          },
+        },
+      };
+      state.setConfig({
+        ...state.CONFIG,
+        favoriteEntities: [storageId, counterId, temperatureId],
+      });
+      state.setStates(entities);
+      mockRequest.mockImplementation(({ entity_ids: entityIds }) => ({
+        [temperatureId]: entityIds.includes(temperatureId)
+          ? [
+              { state: '48', last_changed: '2026-08-31T07:00:00.000Z' },
+              { state: '50', last_changed: '2026-08-31T08:00:00.000Z' },
+            ]
+          : [],
+      }));
+
+      ui.renderActiveTab();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      const storageTile = document.querySelector(`[data-entity-id="${storageId}"]`);
+      const counterTile = document.querySelector(`[data-entity-id="${counterId}"]`);
+      const temperatureTile = document.querySelector(`[data-entity-id="${temperatureId}"]`);
+      expect(storageTile.querySelector('.control-sensor-value').textContent).toBe('6.6');
+      expect(counterTile.querySelector('.control-sensor-value').textContent).toBe('60000');
+      expect(storageTile.classList.contains('sensor-chart-entity')).toBe(false);
+      expect(counterTile.classList.contains('sensor-chart-entity')).toBe(false);
+      expect(storageTile.querySelector('.control-sensor-sparkline')).toBeNull();
+      expect(counterTile.querySelector('.control-sensor-sparkline')).toBeNull();
+      expect(temperatureTile.classList.contains('sensor-chart-entity')).toBe(true);
+      expect(temperatureTile.querySelector('.control-sensor-sparkline')).toBeTruthy();
+
+      const requestedEntityIds = mockRequest.mock.calls.flatMap(([request]) =>
+        Array.isArray(request.entity_ids) ? request.entity_ids : []
+      );
+      expect(requestedEntityIds).toContain(temperatureId);
+      expect(requestedEntityIds).not.toContain(storageId);
+      expect(requestedEntityIds).not.toContain(counterId);
+
+      storageTile.click();
+      await Promise.resolve();
+      expect(document.querySelector('.sensor-detail-modal .sensor-detail-sparkline')).toBeNull();
+      expect(mockRequest.mock.calls.flatMap(([request]) => request.entity_ids || [])).not.toContain(
+        storageId
+      );
     });
 
     it('leaves non-numeric quick access sensors on the standard state path', () => {
@@ -5267,6 +5830,145 @@ describe('UI Rendering - Selective Business Logic Tests (ui.js)', () => {
 
       ui.updateWeatherEffects();
       expect(mockWeatherEffects.setEffect).toHaveBeenCalledWith(null);
+    });
+  });
+
+  describe('Quick Access room presentation', () => {
+    let tabBar;
+
+    beforeEach(() => {
+      tabBar = document.createElement('div');
+      tabBar.id = 'quick-access-tabs';
+      tabBar.className = 'quick-access-tabs hidden';
+      document.body.appendChild(tabBar);
+    });
+
+    const createSensor = (entityId, index) => ({
+      entity_id: entityId,
+      state: String(index),
+      attributes: {
+        friendly_name: `Network stat ${index}`,
+        unit_of_measurement: 'ms',
+      },
+    });
+
+    const setDashboard = ({ presentation, tabs, activeTabId }) => {
+      const uiConfig = { ...(state.CONFIG.ui || {}) };
+      if (presentation) uiConfig.quickAccessPresentation = presentation;
+      else delete uiConfig.quickAccessPresentation;
+      const entityIds = tabs.flatMap((tab) => tab.entityIds);
+
+      state.setConfig({
+        ...state.CONFIG,
+        ui: uiConfig,
+        customTabs: tabs,
+        activeTabId,
+        favoriteEntities: [...new Set(entityIds)],
+      });
+      state.setStates(
+        Object.fromEntries(
+          [...new Set(entityIds)].map((entityId, index) => [
+            entityId,
+            createSensor(entityId, index + 1),
+          ])
+        )
+      );
+    };
+
+    it('keeps each room palette on frosted tiles and their sensor sparklines', () => {
+      expect(desktopPinStyles).toContain(
+        'background: var(--quick-access-section-tile-bg, var(--glass-surface));'
+      );
+      expect(desktopPinStyles).toContain(
+        '--quick-access-section-sparkline-rgb: var(--quick-access-pastel-rgb);'
+      );
+      expect(desktopPinStyles).toContain(
+        'rgba(var(--quick-access-section-sparkline-rgb, var(--accent-rgb)), 0.72)'
+      );
+    });
+
+    it('keeps the stock active-tab view by default while rendering more than 12 tiles', () => {
+      const activeEntityIds = Array.from(
+        { length: 13 },
+        (_, index) => `sensor.active_${index + 1}`
+      );
+      setDashboard({
+        tabs: [
+          { id: 'active', name: 'Active', entityIds: activeEntityIds },
+          { id: 'other', name: 'Other', entityIds: ['sensor.other'] },
+        ],
+        activeTabId: 'active',
+      });
+
+      ui.renderActiveTab();
+
+      const container = document.getElementById('quick-controls');
+      expect(container.classList.contains('controls-grid')).toBe(true);
+      expect(container.classList.contains('quick-access-rooms')).toBe(false);
+      expect(container.querySelectorAll(':scope > .control-item')).toHaveLength(13);
+      expect(container.querySelector('.quick-access-room')).toBeNull();
+      expect(container.querySelector('[data-entity-id="sensor.active_13"]')).not.toBeNull();
+      expect(container.querySelector('[data-entity-id="sensor.other"]')).toBeNull();
+      expect(ui.isEntityVisible('sensor.active_13')).toBe(true);
+      expect(ui.isEntityVisible('sensor.other')).toBe(false);
+      expect(tabBar.classList.contains('hidden')).toBe(false);
+    });
+
+    it('renders ordered room columns, reuses their DOM, and restores them after reorganising', () => {
+      const downstairsEntityIds = Array.from(
+        { length: 7 },
+        (_, index) => `sensor.downstairs_${index + 1}`
+      );
+      const networkEntityIds = Array.from(
+        { length: 7 },
+        (_, index) => `sensor.network_${index + 1}`
+      );
+      setDashboard({
+        presentation: 'rooms',
+        tabs: [
+          { id: 'downstairs', name: 'Downstairs', entityIds: downstairsEntityIds },
+          { id: 'network', name: 'Network', entityIds: networkEntityIds },
+        ],
+        activeTabId: 'downstairs',
+      });
+
+      ui.renderActiveTab();
+
+      const container = document.getElementById('quick-controls');
+      const rooms = Array.from(container.querySelectorAll(':scope > .quick-access-room'));
+      const firstTile = container.querySelector('[data-entity-id="sensor.downstairs_1"]');
+      expect(container.classList.contains('quick-access-rooms')).toBe(true);
+      expect(container.classList.contains('controls-grid')).toBe(false);
+      expect(rooms.map((room) => room.dataset.roomId)).toEqual(['downstairs', 'network']);
+      expect(
+        rooms.map((room) => room.querySelector('.quick-access-room-name').textContent)
+      ).toEqual(['Downstairs', 'Network']);
+      expect(
+        rooms.map((room) => room.querySelector('.quick-access-room-count').textContent)
+      ).toEqual(['7', '7']);
+      expect(rooms.every((room) => room.querySelector('.quick-access-room-device-icon svg'))).toBe(
+        true
+      );
+      expect(rooms.map((room) => room.querySelectorAll('.control-item').length)).toEqual([7, 7]);
+      expect(container.querySelectorAll('.control-item')).toHaveLength(14);
+      expect(ui.isEntityVisible('sensor.network_7')).toBe(true);
+      expect(tabBar.classList.contains('hidden')).toBe(true);
+
+      ui.renderActiveTab();
+      expect(container.querySelector('[data-room-id="downstairs"]')).toBe(rooms[0]);
+      expect(container.querySelector('[data-entity-id="sensor.downstairs_1"]')).toBe(firstTile);
+
+      ui.toggleReorganizeMode();
+      expect(container.classList.contains('quick-access-rooms')).toBe(false);
+      expect(container.classList.contains('reorganize-mode')).toBe(true);
+      expect(container.querySelectorAll(':scope > .control-item')).toHaveLength(7);
+      expect(tabBar.classList.contains('hidden')).toBe(false);
+
+      ui.toggleReorganizeMode();
+      expect(container.classList.contains('quick-access-rooms')).toBe(true);
+      expect(container.classList.contains('reorganize-mode')).toBe(false);
+      expect(container.querySelectorAll(':scope > .quick-access-room')).toHaveLength(2);
+      expect(container.querySelectorAll('.control-item')).toHaveLength(14);
     });
   });
 

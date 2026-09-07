@@ -44,6 +44,7 @@ function createPopupWindowPresenter(options = {}) {
     platform = process.platform,
     getConfig = () => ({}),
     getWorkAreas = () => [],
+    prepareWindowForShow = null,
     // Wayland gives clients no way to position their own toplevels: setBounds() updates
     // what getBounds() reports but never moves the window, so attempting a restore there
     // only feeds compositor-invented coordinates back into the saved position.
@@ -224,11 +225,19 @@ function createPopupWindowPresenter(options = {}) {
 
     cancelPendingRaises();
     blurReleaseArmed = false;
-    const intendedPosition = resolveIntendedPosition(targetWindow);
-
     if (safeCall(targetWindow, 'isMinimized')) {
       safeCall(targetWindow, 'restore');
     }
+    // All entry points, including global hotkeys, honour monitor and fill preferences.
+    // A placement failure must not leave a tray-only app inaccessible.
+    if (typeof prepareWindowForShow === 'function') {
+      try {
+        prepareWindowForShow(targetWindow);
+      } catch (error) {
+        log.warn?.('Failed to prepare popup placement:', error?.message || error);
+      }
+    }
+    const intendedPosition = resolveIntendedPosition(targetWindow);
 
     setFullScreenVisibility(targetWindow, true);
     // Raise before show() so the first composited frame is already above the video
