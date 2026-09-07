@@ -7,6 +7,16 @@ const rebuildNativeDependencies = require('../../scripts/rebuild-native-dependen
 jest.mock('electron-builder', () => ({ Arch: require('builder-util').Arch }));
 
 describe('native dependency rebuild policy', () => {
+  test('reviews install scripts for every platform in the lockfile', () => {
+    const { allowScripts } = require('../../package.json');
+    const { packages } = require('../../package-lock.json');
+    for (const [location, pkg] of Object.entries(packages)) {
+      if (!location || !pkg.hasInstallScript) continue;
+      const name = location.split('node_modules/').pop();
+      expect(typeof allowScripts[`${name}@${pkg.version}`]).toBe('boolean');
+    }
+  });
+
   test('postinstall rebuilds runtime addons but excludes unused usocket', async () => {
     const rebuild = jest.fn().mockResolvedValue(undefined);
     await expect(rebuildNativeDependencies({}, rebuild)).resolves.toBeUndefined();

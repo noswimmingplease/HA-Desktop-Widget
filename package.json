@@ -8,6 +8,7 @@
   "allowScripts": {
     "electron-winstaller@5.4.0": true,
     "esbuild@0.28.1": true,
+    "fsevents@2.3.3": true,
     "uiohook-napi@1.5.5": true,
     "unrs-resolver@1.12.2": true,
     "usocket@1.0.3": false
