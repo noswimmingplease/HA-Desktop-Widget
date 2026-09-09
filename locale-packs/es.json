@@ -2,7 +2,7 @@
   "locale": "es",
   "displayName": "Español",
   "englishName": "Spanish",
-  "version": "1.2.13",
+  "version": "1.2.14",
   "minAppVersion": "3.4.1",
   "notes": "Spanish language pack for HA Desktop Widget.",
   "messages": {
@@ -482,6 +482,8 @@
     "Settings were saved, but the sync passphrase could not be stored.": "La configuración se guardó, pero la contraseña de sincronización no se pudo almacenar.",
     "Failed to apply popup hotkey mode": "No se pudo aplicar el modo del atajo emergente",
     "Failed to apply popup hotkey behavior": "No se pudo aplicar el comportamiento del atajo emergente",
-    "Connecting to Home Assistant...": "Conectando con Home Assistant..."
+    "Connecting to Home Assistant...": "Conectando con Home Assistant...",
+    "Enable HA Desktop Widget Companion": "Activar HA Desktop Widget Companion",
+    "Requires the separately installed HA Desktop Widget Companion custom integration in Home Assistant. Leave this off for normal dashboard use.": "Requiere la integración personalizada HA Desktop Widget Companion instalada por separado en Home Assistant. Déjala desactivada para el uso normal del panel."
   }
 }

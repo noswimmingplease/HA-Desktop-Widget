@@ -301,6 +301,10 @@ function createSettingsModalDOM() {
         <input type="checkbox" id="enable-interaction-debug-logs" />
         Enable interaction diagnostics logs
       </label>
+      <label for="desktop-companion-enabled">
+        <input type="checkbox" id="desktop-companion-enabled" />
+        Enable HA Desktop Widget Companion
+      </label>
       <label for="profile-sync-enabled">
         <input type="checkbox" id="profile-sync-enabled" />
         Enable Profile Sync
@@ -1272,6 +1276,23 @@ describe('Settings + Config Integration', () => {
           ui: expect.objectContaining({
             enableInteractionDebugLogs: false,
           }),
+        })
+      );
+    });
+
+    test('keeps the optional desktop companion disabled unless explicitly enabled', async () => {
+      state.CONFIG.desktopCompanion = { desktopId: 'desktop-1', enabled: false };
+      await settings.openSettings();
+
+      const companionToggle = document.getElementById('desktop-companion-enabled');
+      expect(companionToggle.checked).toBe(false);
+
+      companionToggle.checked = true;
+      await settings.saveSettings();
+
+      expect(window.electronAPI.updateConfig).toHaveBeenCalledWith(
+        expect.objectContaining({
+          desktopCompanion: { desktopId: 'desktop-1', enabled: true },
         })
       );
     });

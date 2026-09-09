@@ -2,7 +2,7 @@
   "locale": "hi",
   "displayName": "हिन्दी",
   "englishName": "Hindi",
-  "version": "1.2.13",
+  "version": "1.2.14",
   "minAppVersion": "3.4.1",
   "notes": "Hindi language pack for HA Desktop Widget.",
   "messages": {
@@ -482,6 +482,8 @@
     "Settings were saved, but the sync passphrase could not be stored.": "सेटिंग्स सहेज ली गईं, लेकिन सिंक पासफ़्रेज़ संग्रहीत नहीं हो सका।",
     "Failed to apply popup hotkey mode": "पॉपअप हॉटकी मोड लागू नहीं हो सका",
     "Failed to apply popup hotkey behavior": "पॉपअप हॉटकी व्यवहार लागू नहीं हो सका",
-    "Connecting to Home Assistant...": "Home Assistant से कनेक्ट हो रहा है..."
+    "Connecting to Home Assistant...": "Home Assistant से कनेक्ट हो रहा है...",
+    "Enable HA Desktop Widget Companion": "HA Desktop Widget Companion सक्षम करें",
+    "Requires the separately installed HA Desktop Widget Companion custom integration in Home Assistant. Leave this off for normal dashboard use.": "इसके लिए Home Assistant में अलग से HA Desktop Widget Companion कस्टम इंटीग्रेशन इंस्टॉल होना आवश्यक है। सामान्य डैशबोर्ड उपयोग के लिए इसे बंद रखें।"
   }
 }

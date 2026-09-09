@@ -318,6 +318,59 @@ describe('DesktopCompanionClient', () => {
     client.stop();
   });
 
+  test('does not report state before companion registration succeeds', async () => {
+    const websocket = new FakeWebSocket();
+    websocket.request = jest.fn(async (message) => {
+      websocket.requests.push(message);
+      return { success: false, error: { message: 'Unknown command', code: 'unknown_command' } };
+    });
+    const { client } = createClient({ websocket });
+    client.start();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    await client.reportState();
+
+    expect(
+      websocket.requests.filter((request) => request.type === 'ha_desktop_widget/report_state')
+    ).toHaveLength(0);
+    client.stop();
+  });
+
+  test('stops retrying an unsupported layout snapshot command', async () => {
+    const websocket = new FakeWebSocket();
+    websocket.request = jest.fn(async (message) => {
+      websocket.requests.push(message);
+      if (message.type === 'ha_desktop_widget/get_info') {
+        return { success: true, result: { protocol_version: PROTOCOL_VERSION } };
+      }
+      if (message.type === 'ha_desktop_widget/put_config_snapshot') {
+        return { success: false, error: { message: 'Unknown command', code: 'unknown_command' } };
+      }
+      return { success: true, result: {} };
+    });
+    const client = new DesktopCompanionClient({
+      websocket,
+      getRegistration: jest.fn(async () => ({ desktop_id: 'desktop-1', name: 'X' })),
+      getState: jest.fn(async () => ({ visible: true })),
+      getConfigDocument: jest.fn(async () => ({ ui: { theme: 'dark' } })),
+      executeCommand: jest.fn(),
+      heartbeatIntervalMs: 60_000,
+      logger: mockLogger,
+    });
+    client.start();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    await client.reportConfigSnapshot();
+    await client.reportConfigSnapshot();
+
+    expect(
+      websocket.requests.filter(
+        (request) => request.type === 'ha_desktop_widget/put_config_snapshot'
+      )
+    ).toHaveLength(1);
+    client.stop();
+  });
+
   test('resets subscriptions and heartbeat state on socket close', async () => {
     jest.useFakeTimers();
     const { client, websocket } = createClient();

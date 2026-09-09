@@ -141,6 +141,10 @@ connection for registration, state reporting, command delivery, and acknowledgem
 accepts arbitrary shell commands, JavaScript, file access, URLs, or generic Electron IPC from
 Home Assistant.
 
+The companion connection is disabled by default. Enable it under **Settings > Advanced** only when
+the matching custom integration is installed in Home Assistant. It is not required for normal
+dashboard entities, controls, System Bridge readings, alerts, or desktop pins.
+
 `apply_profile` applies a named profile authored in Home Assistant: a bounded configuration
 document covering appearance (theme, accent, background, opacity, frosted glass), primary cards,
 Quick Access pages and tiles, comparison graphs, custom icons, and tile options. Profiles never

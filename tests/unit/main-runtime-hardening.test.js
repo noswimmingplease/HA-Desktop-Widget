@@ -1161,7 +1161,10 @@ describe('profile sync runtime safeguards', () => {
     const updateEnd = mainSource.indexOf("'clear-token-reset-reason'", updateStart);
     const updateSource = mainSource.slice(updateStart, updateEnd);
     expect(updateSource).toContain('Object.assign(homeAssistant, previousHomeAssistant)');
-    expect(updateSource).toContain('desktopCompanion: previousDesktopCompanion');
+    expect(updateSource).toContain('...previousDesktopCompanion');
+    expect(updateSource).toContain("typeof newConfig?.desktopCompanion?.enabled === 'boolean'");
+    expect(updateSource).toContain('previousDesktopCompanion.enabled === true');
+    expect(updateSource).toContain('desktopCompanion,');
 
     const disconnectStart = mainSource.indexOf("'disconnect-home-assistant-oauth'");
     const disconnectEnd = mainSource.indexOf(

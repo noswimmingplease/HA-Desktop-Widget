@@ -864,6 +864,17 @@ function ensureDesktopCompanionClient() {
   return desktopCompanionClient;
 }
 
+function syncDesktopCompanionClient() {
+  if (state.CONFIG?.desktopCompanion?.enabled !== true) {
+    desktopCompanionClient?.stop();
+    return null;
+  }
+
+  const client = ensureDesktopCompanionClient();
+  client?.start();
+  return client;
+}
+
 function startConfiguredRuntime() {
   if (IS_DESKTOP_PIN_MODE || !isConfigured(state.CONFIG)) return false;
 
@@ -873,7 +884,7 @@ function startConfiguredRuntime() {
   startUiTickScheduler();
 
   if (shouldInitializeRuntime) {
-    ensureDesktopCompanionClient()?.start();
+    syncDesktopCompanionClient();
     hotkeys.initializeHotkeys();
     hotkeys.setupHotkeyEventListeners();
     alerts.initializeEntityAlerts();
@@ -969,6 +980,7 @@ function applyRendererConfig(nextConfig) {
     withChanged: true,
   });
   state.setConfig(normalizedGraphs.config);
+  syncDesktopCompanionClient();
   refreshDesktopPinStatePublishing();
   if ((normalizedQuickAccess.changed || normalizedGraphs.changed) && !IS_DESKTOP_PIN_MODE) {
     window.electronAPI.updateConfig(normalizedGraphs.config).catch((error) => {
@@ -987,7 +999,9 @@ function applyRendererConfig(nextConfig) {
   }
 
   // Keep Home Assistant's stored layout snapshot current (deduplicated in the client).
-  void desktopCompanionClient?.reportConfigSnapshot();
+  if (state.CONFIG?.desktopCompanion?.enabled === true) {
+    void desktopCompanionClient?.reportConfigSnapshot();
+  }
 
   showConfigPersistenceWarnings(persistenceWarnings);
   runtimeWarnings.forEach((warning) => {

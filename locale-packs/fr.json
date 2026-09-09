@@ -2,7 +2,7 @@
   "locale": "fr",
   "displayName": "Français",
   "englishName": "French",
-  "version": "1.2.13",
+  "version": "1.2.14",
   "minAppVersion": "3.4.1",
   "notes": "French language pack for HA Desktop Widget.",
   "messages": {
@@ -482,6 +482,8 @@
     "Settings were saved, but the sync passphrase could not be stored.": "Les paramètres ont été enregistrés, mais la phrase secrète de synchronisation n'a pas pu être stockée.",
     "Failed to apply popup hotkey mode": "Impossible d'appliquer le mode du raccourci de la fenêtre contextuelle",
     "Failed to apply popup hotkey behavior": "Impossible d'appliquer le comportement du raccourci de la fenêtre contextuelle",
-    "Connecting to Home Assistant...": "Connexion à Home Assistant..."
+    "Connecting to Home Assistant...": "Connexion à Home Assistant...",
+    "Enable HA Desktop Widget Companion": "Activer HA Desktop Widget Companion",
+    "Requires the separately installed HA Desktop Widget Companion custom integration in Home Assistant. Leave this off for normal dashboard use.": "Nécessite l'intégration personnalisée HA Desktop Widget Companion installée séparément dans Home Assistant. Laissez cette option désactivée pour une utilisation normale du tableau de bord."
   }
 }

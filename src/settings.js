@@ -3962,6 +3962,7 @@ async function openSettings(uiHooks) {
     const opacityValue = document.getElementById('opacity-value');
     const frostedGlass = document.getElementById('frosted-glass');
     const enableInteractionDebugLogs = document.getElementById('enable-interaction-debug-logs');
+    const desktopCompanionEnabled = document.getElementById('desktop-companion-enabled');
     const allowPrereleaseUpdates = document.getElementById('allow-prerelease-updates');
     if (haUrl) haUrl.value = state.CONFIG.homeAssistant.url || '';
     if (haToken) {
@@ -4102,6 +4103,9 @@ async function openSettings(uiHooks) {
     state.CONFIG.ui = state.CONFIG.ui || {};
     if (enableInteractionDebugLogs) {
       enableInteractionDebugLogs.checked = !!state.CONFIG.ui.enableInteractionDebugLogs;
+    }
+    if (desktopCompanionEnabled) {
+      desktopCompanionEnabled.checked = state.CONFIG.desktopCompanion?.enabled === true;
     }
     setPendingCustomColorList(state.CONFIG.ui.customColors || []);
 
@@ -4543,6 +4547,7 @@ async function saveSettings() {
     const opacitySlider = document.getElementById('opacity-slider');
     const frostedGlass = document.getElementById('frosted-glass');
     const enableInteractionDebugLogs = document.getElementById('enable-interaction-debug-logs');
+    const desktopCompanionEnabled = document.getElementById('desktop-companion-enabled');
     const allowPrereleaseUpdates = document.getElementById('allow-prerelease-updates');
     const languageSelect = document.getElementById('language-select');
     const weatherEntitySelect = document.getElementById('weather-entity-select');
@@ -4651,6 +4656,10 @@ async function saveSettings() {
       : nextConfig.ui.activeTileGlow !== false;
     if (enableInteractionDebugLogs) {
       nextConfig.ui.enableInteractionDebugLogs = !!enableInteractionDebugLogs.checked;
+    }
+    nextConfig.desktopCompanion = { ...(nextConfig.desktopCompanion || {}) };
+    if (desktopCompanionEnabled) {
+      nextConfig.desktopCompanion.enabled = !!desktopCompanionEnabled.checked;
     }
     nextConfig.updates = nextConfig.updates || {};
     if (allowPrereleaseUpdates) {

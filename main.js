@@ -3779,6 +3779,7 @@ function loadConfig(options = {}) {
     },
     desktopCompanion: {
       desktopId: '',
+      enabled: false,
     },
     haProfile: {
       activeProfileId: '',
@@ -5963,6 +5964,13 @@ ipcMain.handle(
     const previousEncryptedTokenForRecovery = preservedEncryptedTokenForRecovery;
     const prevSyncEnabled = !!config?.profileSync?.enabled;
     const previousDesktopCompanion = { ...(config?.desktopCompanion || {}) };
+    const desktopCompanion = {
+      ...previousDesktopCompanion,
+      enabled:
+        typeof newConfig?.desktopCompanion?.enabled === 'boolean'
+          ? newConfig.desktopCompanion.enabled
+          : previousDesktopCompanion.enabled === true,
+    };
     const previousHomeAssistant = { ...(config?.homeAssistant || {}) };
     // Development demo state is an IPC-only marker. Never let an overlay renderer
     // write it back into the user's real configuration.
@@ -6073,7 +6081,7 @@ ipcMain.handle(
       ...config,
       ...newConfig,
       homeAssistant,
-      desktopCompanion: previousDesktopCompanion,
+      desktopCompanion,
       customTabs,
       profileSync,
       updates,

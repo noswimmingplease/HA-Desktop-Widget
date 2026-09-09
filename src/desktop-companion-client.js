@@ -58,6 +58,8 @@ class DesktopCompanionClient {
     this.generation = 0;
     this.unsubscribeCommands = null;
     this.heartbeatTimer = null;
+    this.registeredDesktopId = null;
+    this.configSnapshotsSupported = true;
     this.commandResults = new Map();
     this._handleSocketMessage = (message) => {
       if (message?.type === 'auth_ok') void this.initializeSession();
@@ -92,6 +94,7 @@ class DesktopCompanionClient {
       clearInterval(this.heartbeatTimer);
       this.heartbeatTimer = null;
     }
+    this.registeredDesktopId = null;
   }
 
   async initializeSession() {
@@ -137,6 +140,7 @@ class DesktopCompanionClient {
         },
         (command) => void this.handleCommand(registration.desktop_id, command)
       );
+      this.registeredDesktopId = registration.desktop_id;
       await this.reportState(registration.desktop_id);
       await this.reportConfigSnapshot(registration.desktop_id);
       this.heartbeatTimer = setInterval(() => {
@@ -155,8 +159,8 @@ class DesktopCompanionClient {
 
   async reportState(desktopId = null, explicitState = null) {
     if (!this.started || !this.websocket.isConnected?.()) return false;
-    const registration = desktopId ? null : await this.getRegistration();
-    const resolvedDesktopId = boundedString(desktopId || registration?.desktop_id);
+    if (!desktopId && !this.registeredDesktopId) return false;
+    const resolvedDesktopId = boundedString(desktopId || this.registeredDesktopId);
     if (!resolvedDesktopId) return false;
     try {
       const state = normalizeState(explicitState || (await this.getState()));
@@ -177,9 +181,10 @@ class DesktopCompanionClient {
 
   async reportConfigSnapshot(desktopId = null) {
     if (!this.started || !this.websocket.isConnected?.()) return false;
+    if (!this.configSnapshotsSupported) return false;
+    if (!desktopId && !this.registeredDesktopId) return false;
     if (typeof this.getConfigDocument !== 'function') return false;
-    const registration = desktopId ? null : await this.getRegistration();
-    const resolvedDesktopId = boundedString(desktopId || registration?.desktop_id);
+    const resolvedDesktopId = boundedString(desktopId || this.registeredDesktopId);
     if (!resolvedDesktopId) return false;
     try {
       const document = await this.getConfigDocument();
@@ -197,9 +202,10 @@ class DesktopCompanionClient {
       this.lastConfigSnapshot = serialized;
       return true;
     } catch (error) {
-      // Older Home Assistant integrations do not know this command; stay quiet
-      // after the first refusal instead of warning every heartbeat.
-      this.lastConfigSnapshot = 'unsupported';
+      const unsupported =
+        error?.code === 'unknown_command' ||
+        /unknown command/i.test(String(error?.message || error));
+      if (unsupported) this.configSnapshotsSupported = false;
       this.log.warn('Desktop layout snapshot was not accepted:', error?.message || error);
       return false;
     }
