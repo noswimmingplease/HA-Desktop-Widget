@@ -42,7 +42,9 @@ const {
   createFullScreenController,
   isFullScreenExitShortcut,
   isFullScreenShortcut,
+  migrateStartMinimizedSetting,
   normalizeCloseButtonAction,
+  shouldStartMinimized,
   shouldStartFullScreen,
   toggleWindowMaximized,
 } = require('./src/window-mode.cjs');
@@ -298,7 +300,7 @@ const {
 const {
   getWindowsStartupRegistryName,
   LOGIN_STARTUP_ARG,
-  shouldStartInTrayAtLogin,
+  isLoginStartupLaunch,
   isWindowsLoginItemEnabled,
   quoteWindowsExecutablePath,
 } = require('./src/windows-startup.cjs');
@@ -524,7 +526,7 @@ if (!gotSingleInstanceLock) {
   // popup hotkey do. This is also the only way back for a window hidden to the tray on a desktop
   // whose tray is missing or broken.
   app.on('second-instance', (_event, argv) => {
-    if (shouldStartInTrayAtLogin({ argv, enabled: config?.startInTrayAtLogin })) return;
+    if (isLoginStartupLaunch(argv)) return;
     log.info('Second instance launched; showing the existing window');
     showMainWindowFromTray();
   });
@@ -3680,9 +3682,7 @@ function pruneConfig(target) {
   if (Object.prototype.hasOwnProperty.call(target, 'fillMonitor')) {
     target.fillMonitor = target.fillMonitor === true;
   }
-  if (Object.prototype.hasOwnProperty.call(target, 'startInTrayAtLogin')) {
-    target.startInTrayAtLogin = target.startInTrayAtLogin === true;
-  }
+  migrateStartMinimizedSetting(target);
   if (Object.prototype.hasOwnProperty.call(target, 'closeButtonAction')) {
     target.closeButtonAction = normalizeCloseButtonAction(target.closeButtonAction);
   }
@@ -3767,7 +3767,7 @@ function loadConfig(options = {}) {
     fillMonitor: false,
     alwaysOnTop: true,
     closeButtonAction: 'minimize',
-    startInTrayAtLogin: false,
+    startMinimized: false,
     opacity: 0.95,
     frostedGlass: true,
     homeAssistant: {
@@ -3904,6 +3904,7 @@ function loadConfig(options = {}) {
         profileSync: { ...defaultConfig.profileSync, ...(userConfig.profileSync || {}) },
         updates: { ...defaultConfig.updates, ...(userConfig.updates || {}) },
       };
+      config.startMinimized = migrateStartMinimizedSetting({ ...userConfig });
       normalizeDesktopPinsConfig(config);
       pruneConfig(config);
       if (typeof config.ui?.language !== 'string' || !config.ui.language.trim()) {
@@ -5177,7 +5178,7 @@ function createWindow() {
   const startHidden =
     !initialMainWindowCreated &&
     app.isPackaged &&
-    shouldStartInTrayAtLogin({ argv: process.argv, enabled: config.startInTrayAtLogin });
+    shouldStartMinimized({ argv: process.argv, enabled: config.startMinimized });
   initialMainWindowCreated = true;
   // Get the primary display's work area
   const primaryDisplay = electronScreen.getPrimaryDisplay();

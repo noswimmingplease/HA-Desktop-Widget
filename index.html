@@ -573,24 +573,21 @@
                 </label>
               </div>
               <div class="form-group">
-                <div id="start-in-tray-at-login-group" hidden>
-                  <label>
-                    <input
-                      type="checkbox"
-                      id="start-in-tray-at-login"
-                      aria-describedby="start-in-tray-at-login-help"
-                    />
-                    <span data-i18n="Start in notification area at login"
-                      >Start in notification area at login</span
-                    >
-                  </label>
-                  <div
-                    id="start-in-tray-at-login-help"
-                    class="form-help"
-                    data-i18n="Opening the app yourself still shows the window."
-                  >
-                    Opening the app yourself still shows the window.
-                  </div>
+                <label>
+                  <input
+                    type="checkbox"
+                    id="start-minimized"
+                    aria-describedby="start-minimized-help"
+                  />
+                  <span data-i18n="Start minimised">Start minimised</span>
+                </label>
+                <div
+                  id="start-minimized-help"
+                  class="form-help"
+                  data-i18n="Keep the window in the notification area whenever the app starts. Open it from the notification icon or launch the app again."
+                >
+                  Keep the window in the notification area whenever the app starts. Open it from the
+                  notification icon or launch the app again.
                 </div>
               </div>
               <div id="window-display-settings" hidden>
@@ -1477,8 +1474,8 @@
                   No custom icons configured.
                 </div>
                 <div class="form-help">
-                  Type keywords in each row to search the full emoji picker, or paste one
-                  emoji/glyph and click Apply.
+                  Search the bundled Material Design icon library by name (for example TV, screen,
+                  backup or storage), or paste one emoji/glyph and click Apply.
                 </div>
                 <div class="form-help">
                   Custom icons change icon appearance only. They do not add entities to Quick Access

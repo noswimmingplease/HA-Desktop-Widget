@@ -127,6 +127,19 @@ beforeAll(() => {
   mockElectronAPI = createMockElectronAPI();
   window.electronAPI = mockElectronAPI;
 
+  const mdiStyles = document.createElement('style');
+  mdiStyles.textContent = `
+    .mdi-television::before { content: "\\F0502"; }
+    .mdi-monitor::before { content: "\\F0379"; }
+    .mdi-backup-restore::before { content: "\\F006F"; }
+    .mdi-harddisk::before { content: "\\F02CA"; }
+    .mdi-timer-outline::before { content: "\\F051B"; }
+    .mdi-tree::before { content: "\\F0531"; }
+    .mdi-rodent::before { content: "\\F1327"; }
+    .mdi-mouse::before { content: "\\F037D"; }
+  `;
+  document.head.appendChild(mdiStyles);
+
   // Mock window.confirm for jsdom
   window.confirm = jest.fn().mockReturnValue(false); // Default to false (don't restart)
 });
@@ -634,31 +647,23 @@ describe('Settings + Config Integration', () => {
       );
     });
 
-    test('saves the Windows login visibility preference and keeps it dependent on Start at login', async () => {
-      window.electronAPI.platform = 'win32';
+    test('saves startup visibility independently of Start at login', async () => {
       document
         .getElementById('start-with-windows')
-        .insertAdjacentHTML(
-          'afterend',
-          '<div id="start-in-tray-at-login-group"><input type="checkbox" id="start-in-tray-at-login"></div>'
-        );
+        .insertAdjacentHTML('afterend', '<input type="checkbox" id="start-minimized">');
       window.electronAPI.getLoginItemSettings.mockResolvedValueOnce({
         openAtLogin: false,
         supported: true,
       });
       await settings.openSettings();
-      const start = document.getElementById('start-with-windows');
-      const hidden = document.getElementById('start-in-tray-at-login');
-      expect(hidden.disabled).toBe(true);
-      start.checked = true;
-      start.dispatchEvent(new Event('change'));
+      const hidden = document.getElementById('start-minimized');
       expect(hidden.disabled).toBe(false);
       hidden.checked = true;
       await settings.saveSettings();
       expect(window.electronAPI.updateConfig).toHaveBeenCalledWith(
-        expect.objectContaining({ startInTrayAtLogin: true })
+        expect.objectContaining({ startMinimized: true })
       );
-      expect(window.electronAPI.setLoginItemSettings).toHaveBeenCalledWith(true);
+      expect(window.electronAPI.setLoginItemSettings).toHaveBeenCalledWith(false);
     });
 
     test('development startup controls cannot overwrite the installed login registration', async () => {
@@ -1661,7 +1666,7 @@ describe('Settings + Config Integration', () => {
       expect(window.electronAPI.updateConfig).not.toHaveBeenCalled();
     });
 
-    test('should show the full emoji catalog in the picker', async () => {
+    test('should show common bundled icons without rendering the entire catalog', async () => {
       // Arrange
       await openSettingsWithCustomIconsExpanded();
       const chooseBtn = document.querySelector(
@@ -1679,13 +1684,14 @@ describe('Settings + Config Integration', () => {
       const renderedIcons = new Set(
         Array.from(allChoices, (choice) => choice.dataset.customIconChoice)
       );
-      expect(allChoices.length).toBeGreaterThanOrEqual(3953);
-      ['1️⃣', '🇨🇦', '🏳️‍🌈', '👨‍👩‍👧‍👦', '👩🏽‍💻', '🫷🏽'].forEach((emoji) => {
-        expect(renderedIcons).toContain(emoji);
-      });
+      expect(allChoices.length).toBeLessThanOrEqual(160);
+      ['mdi:television', 'mdi:monitor', 'mdi:backup-restore', 'mdi:harddisk'].forEach((icon) =>
+        expect(renderedIcons).toContain(icon)
+      );
+      expect(renderedIcons).not.toContain('🫷🏽');
     });
 
-    test('should open picker with all icons when icon input is focused', async () => {
+    test('should open picker with common icons when icon input is focused', async () => {
       // Arrange
       await openSettingsWithCustomIconsExpanded();
       const iconInput = document.querySelector('[data-custom-icon-input="light.living_room"]');
@@ -1699,7 +1705,7 @@ describe('Settings + Config Integration', () => {
       const pickerMeta = picker.querySelector('.custom-entity-icon-picker-meta');
       const list = document.getElementById('custom-entity-icons-list');
       expect(picker).toBeTruthy();
-      expect(pickerMeta.textContent).toContain('Showing all');
+      expect(pickerMeta.textContent).toContain('common icons');
       expect(list.classList.contains('custom-entity-icons-list-expanded')).toBe(true);
     });
 
@@ -1739,7 +1745,7 @@ describe('Settings + Config Integration', () => {
       const picker = document.querySelector('[data-custom-icon-picker="light.living_room"]');
       expect(picker).toBeTruthy();
       const iconChoiceBtn = document.querySelector(
-        '[data-custom-icon-choice="⏲️"][data-custom-icon-choice-entity="light.living_room"]'
+        '[data-custom-icon-choice="mdi:timer-outline"][data-custom-icon-choice-entity="light.living_room"]'
       );
       expect(iconChoiceBtn).toBeTruthy();
       iconChoiceBtn.click();
@@ -1750,7 +1756,7 @@ describe('Settings + Config Integration', () => {
       );
       const row = refreshedApplyBtn.closest('.custom-entity-icon-item');
       const preview = row.querySelector('.custom-entity-icon-preview');
-      expect(preview.textContent).toBe('⏲️');
+      expect(preview.textContent).toBe(String.fromCodePoint(0xf051b));
       expect(state.CONFIG.customEntityIcons).toEqual({});
     });
 
@@ -1766,7 +1772,7 @@ describe('Settings + Config Integration', () => {
 
       // Assert
       const treeChoice = document.querySelector(
-        '[data-custom-icon-choice="🌲"][data-custom-icon-choice-entity="light.living_room"]'
+        '[data-custom-icon-choice="mdi:tree"][data-custom-icon-choice-entity="light.living_room"]'
       );
       expect(treeChoice).toBeTruthy();
     });
@@ -1783,17 +1789,16 @@ describe('Settings + Config Integration', () => {
 
       // Assert
       const ratChoice = document.querySelector(
-        '[data-custom-icon-choice="🐀"][data-custom-icon-choice-entity="light.living_room"]'
+        '[data-custom-icon-choice="mdi:rodent"][data-custom-icon-choice-entity="light.living_room"]'
       );
       expect(ratChoice).toBeTruthy();
       const ratSummary = document.querySelector(
         '[data-custom-icon-picker="light.living_room"] .custom-entity-icon-picker-meta'
       );
       expect(ratSummary).toBeTruthy();
-      expect(ratSummary.textContent).toMatch(/Showing \d+ of \d+ icons for "rat"\./);
-      const [, ratShown, ratTotal] =
-        ratSummary.textContent.match(/Showing (\d+) of (\d+) icons for "rat"\./) || [];
-      expect(Number(ratShown)).toBeLessThan(Number(ratTotal));
+      expect(ratSummary.textContent).toMatch(
+        /Showing \d+ of \d+ matches for "rat" \(\d+ icons available\)\./
+      );
 
       // Act
       iconInput.value = 'mouse';
@@ -1801,7 +1806,7 @@ describe('Settings + Config Integration', () => {
 
       // Assert
       const mouseChoice = document.querySelector(
-        '[data-custom-icon-choice="🐭"][data-custom-icon-choice-entity="light.living_room"]'
+        '[data-custom-icon-choice="mdi:mouse"][data-custom-icon-choice-entity="light.living_room"]'
       );
       expect(mouseChoice).toBeTruthy();
     });
@@ -1818,7 +1823,7 @@ describe('Settings + Config Integration', () => {
 
       // Assert
       const mouseChoice = document.querySelector(
-        '[data-custom-icon-choice="🐭"][data-custom-icon-choice-entity="light.living_room"]'
+        '[data-custom-icon-choice="mdi:mouse"][data-custom-icon-choice-entity="light.living_room"]'
       );
       expect(mouseChoice).toBeTruthy();
     });
@@ -1834,7 +1839,7 @@ describe('Settings + Config Integration', () => {
       // Act
       chooseBtn.click();
       const iconChoiceBtn = document.querySelector(
-        '[data-custom-icon-choice="⭐"][data-custom-icon-choice-entity="light.living_room"]'
+        '[data-custom-icon-choice="mdi:television"][data-custom-icon-choice-entity="light.living_room"]'
       );
       expect(iconChoiceBtn).toBeTruthy();
       iconChoiceBtn.click();
@@ -1845,7 +1850,7 @@ describe('Settings + Config Integration', () => {
       );
       const row = refreshedApplyBtn.closest('.custom-entity-icon-item');
       const preview = row.querySelector('.custom-entity-icon-preview');
-      expect(preview.textContent).toBe('⭐');
+      expect(preview.textContent).toBe(String.fromCodePoint(0xf0502));
       expect(state.CONFIG.customEntityIcons).toEqual({});
     });
 

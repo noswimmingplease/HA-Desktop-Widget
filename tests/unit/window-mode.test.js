@@ -3,7 +3,9 @@ const {
   createFullScreenController,
   isFullScreenExitShortcut,
   isFullScreenShortcut,
+  migrateStartMinimizedSetting,
   normalizeCloseButtonAction,
+  shouldStartMinimized,
   shouldStartFullScreen,
   toggleWindowMaximized,
 } = require('../../src/window-mode.cjs');
@@ -79,6 +81,26 @@ function wireFullScreenController(targetWindow, options = {}) {
 }
 
 describe('window mode helpers', () => {
+  test('starts hidden only for opted-in normal launches', () => {
+    expect(shouldStartMinimized({ enabled: true, argv: ['app.exe'] })).toBe(true);
+    expect(shouldStartMinimized({ enabled: true, argv: ['app.exe', '--login-startup'] })).toBe(
+      true
+    );
+    expect(shouldStartMinimized({ enabled: false, argv: ['app.exe'] })).toBe(false);
+    expect(shouldStartMinimized({ enabled: true, argv: ['app.exe', '--fullscreen'] })).toBe(false);
+    expect(shouldStartMinimized({ enabled: true, argv: ['app.exe', '--smoke-test'] })).toBe(false);
+  });
+
+  test('migrates the login-only preference without overriding an explicit new value', () => {
+    const legacy = { startInTrayAtLogin: true };
+    expect(migrateStartMinimizedSetting(legacy)).toBe(true);
+    expect(legacy).toEqual({ startMinimized: true });
+
+    const current = { startMinimized: false, startInTrayAtLogin: true };
+    expect(migrateStartMinimizedSetting(current)).toBe(false);
+    expect(current).toEqual({ startMinimized: false });
+  });
+
   test('normalizes the close button action to minimise unless quit is explicit', () => {
     expect(normalizeCloseButtonAction('quit')).toBe('quit');
     expect(normalizeCloseButtonAction('minimize')).toBe('minimize');

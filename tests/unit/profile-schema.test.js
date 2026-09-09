@@ -42,7 +42,7 @@ describe('normalizeProfileDocument', () => {
   test('does not synchronise the machine-specific login visibility setting', () => {
     expect(
       normalizeProfileDocument({
-        startInTrayAtLogin: true,
+        startMinimized: true,
         windowDisplayId: '123',
         fillMonitor: true,
         opacity: 0.9,

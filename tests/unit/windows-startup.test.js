@@ -5,29 +5,14 @@ const {
   normalizeWindowsExecutablePath,
   quoteWindowsExecutablePath,
   stripSurroundingQuotes,
-  shouldStartInTrayAtLogin,
+  isLoginStartupLaunch,
 } = require('../../src/windows-startup.cjs');
 
 describe('Windows startup helpers', () => {
-  test('hides only opted-in Windows login launches, preserving manual and diagnostic launches', () => {
-    const enabled = { enabled: true, platform: 'win32' };
-    expect(shouldStartInTrayAtLogin({ ...enabled, argv: ['app.exe', '--login-startup'] })).toBe(
-      true
-    );
-    for (const argv of [
-      [],
-      ['app.exe'],
-      ['--login-startup', '--fullscreen'],
-      ['--login-startup', '--smoke-test'],
-    ]) {
-      expect(shouldStartInTrayAtLogin({ ...enabled, argv })).toBe(false);
-    }
-    expect(
-      shouldStartInTrayAtLogin({ ...enabled, argv: ['--login-startup'], enabled: false })
-    ).toBe(false);
-    expect(
-      shouldStartInTrayAtLogin({ ...enabled, argv: ['--login-startup'], platform: 'linux' })
-    ).toBe(false);
+  test('identifies Windows login registration launches', () => {
+    expect(isLoginStartupLaunch(['app.exe', '--login-startup'])).toBe(true);
+    expect(isLoginStartupLaunch(['app.exe'])).toBe(false);
+    expect(isLoginStartupLaunch(null)).toBe(false);
   });
   test('quotes executable paths for Windows Run commands', () => {
     expect(quoteWindowsExecutablePath('C:\\Apps\\HA Desktop Widget.exe')).toBe(

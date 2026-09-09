@@ -5062,6 +5062,8 @@ body.first-run-active .widget-content > * {
   text-align: left;
   font-size: var(--font-size-base);
   line-height: 1.2;
+  font-family:
+    'Material Design Icons', var(--font-sans), 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif;
 }
 
 .custom-entity-icon-actions .btn {
@@ -5109,6 +5111,8 @@ body.first-run-active .widget-content > * {
   background: var(--surface-1);
   color: var(--text-primary);
   font-size: var(--font-size-xl);
+  font-family:
+    'Material Design Icons', 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', sans-serif;
   line-height: 1;
   cursor: pointer;
 }

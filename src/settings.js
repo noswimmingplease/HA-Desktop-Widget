@@ -141,6 +141,59 @@ const CUSTOM_ENTITY_ICON_FALLBACKS = [
   '🍳',
   '🚿',
 ];
+const CUSTOM_ENTITY_ICON_FEATURED_MDI_NAMES = [
+  'television',
+  'television-classic',
+  'monitor',
+  'monitor-dashboard',
+  'desktop-tower-monitor',
+  'laptop',
+  'cellphone',
+  'tablet',
+  'remote',
+  'speaker',
+  'server',
+  'server-network',
+  'nas',
+  'harddisk',
+  'database',
+  'backup-restore',
+  'cloud-upload',
+  'cloud-download',
+  'router-wireless',
+  'wifi',
+  'access-point-network',
+  'lan',
+  'ethernet',
+  'network',
+  'printer',
+  'camera',
+  'cctv',
+  'video',
+  'lightbulb',
+  'fan',
+  'thermometer',
+  'water-percent',
+  'battery',
+  'flash',
+  'power',
+  'memory',
+  'cpu-64-bit',
+  'chip',
+  'shield-home',
+  'lock',
+  'door',
+  'window-closed',
+  'home',
+  'sofa',
+  'bed',
+  'washing-machine',
+  'dishwasher',
+  'fridge',
+  'robot-vacuum',
+];
+const CUSTOM_ENTITY_ICON_FEATURED_MDI_SET = new Set(CUSTOM_ENTITY_ICON_FEATURED_MDI_NAMES);
+const CUSTOM_ENTITY_ICON_PICKER_RESULT_LIMIT = 160;
 
 function syncWeatherEffectsAvailability(options = {}) {
   const { showWarning = false } = options;
@@ -426,6 +479,16 @@ const CUSTOM_ENTITY_ICON_KEYWORD_GROUPS = {
   insect: ['🐝', '🪲', '🪳', '🦋', '🐛', '🐜', '🐞', '🕷️', '🦂', '🪰', '🪱'],
 };
 const CUSTOM_ENTITY_ICON_TERM_SYNONYMS = {
+  tv: ['television', 'monitor', 'display', 'screen'],
+  television: ['tv', 'monitor', 'display', 'screen'],
+  screen: ['monitor', 'display', 'television', 'tv'],
+  display: ['monitor', 'screen', 'television', 'tv'],
+  backup: ['restore', 'save', 'storage', 'archive', 'cloud'],
+  restore: ['backup', 'recovery'],
+  storage: ['harddisk', 'database', 'nas', 'drive', 'disk', 'backup'],
+  drive: ['harddisk', 'storage', 'disk'],
+  disk: ['harddisk', 'storage', 'drive'],
+  nas: ['storage', 'server', 'network'],
   mice: ['mouse', 'rodent', 'rat', 'animal'],
   mouse: ['rodent', 'rat', 'mice', 'animal', 'pet'],
   rat: ['rodent', 'mouse', 'mice', 'animal'],
@@ -445,7 +508,6 @@ const CUSTOM_ENTITY_ICON_TERM_SYNONYMS = {
 const CUSTOM_ENTITY_ICON_GROUP_ALIASES = buildCustomEntityIconGroupAliases();
 let customEntityIconChoices = null;
 let customEntityIconChoicesPromise = null;
-let rgiEmojiDataCache = null;
 
 function normalizeHexColor(hex) {
   if (!hex || typeof hex !== 'string') return null;
@@ -568,6 +630,8 @@ function normalizeCustomEntityIcon(icon) {
   if (typeof icon !== 'string') return null;
   const trimmed = icon.trim();
   if (!trimmed) return null;
+  const mdiName = utils.normalizeHomeAssistantMdiIcon(trimmed);
+  if (mdiName && utils.getHomeAssistantMdiGlyph(`mdi:${mdiName}`)) return `mdi:${mdiName}`;
   return countIconGraphemes(trimmed) === 1 ? trimmed : null;
 }
 
@@ -731,50 +795,50 @@ function buildCustomEntityIconSearchTerms(icon, aliases, codepointTerms) {
   return Array.from(searchTerms);
 }
 
-function buildCustomEntityIconChoices(rgiEmojiData) {
+function buildCustomEntityIconChoices() {
   const iconSet = new Set(CUSTOM_ENTITY_ICON_FALLBACKS);
 
-  Object.values(CUSTOM_ENTITY_ICON_KEYWORD_GROUPS).forEach((icons) => {
-    (Array.isArray(icons) ? icons : []).forEach((icon) => {
-      const normalized = normalizeCustomEntityIcon(icon);
-      if (normalized) iconSet.add(normalized);
-    });
+  const emojiChoices = Array.from(iconSet).map((icon) => {
+    const stripped = stripEmojiVariationSelectors(icon);
+    const aliases = getCustomEntityIconSearchAliases(icon);
+    const codepointTerms = getIconCodepointTerms(icon);
+    const searchTerms = buildCustomEntityIconSearchTerms(icon, aliases, codepointTerms);
+    const searchText = [icon, stripped, ...aliases, ...codepointTerms, ...searchTerms]
+      .join(' ')
+      .toLowerCase();
+
+    return {
+      icon,
+      glyph: icon,
+      kind: 'emoji',
+      featured: true,
+      aliases,
+      codepointTerms,
+      searchTerms,
+      searchText,
+    };
   });
 
-  if (Array.isArray(rgiEmojiData?.strings)) {
-    rgiEmojiData.strings.forEach((icon) => {
-      const normalized = normalizeCustomEntityIcon(icon);
-      if (normalized) iconSet.add(normalized);
-    });
-  }
+  const mdiChoices = utils.getHomeAssistantMdiIconCatalog().map(({ name, icon, glyph }) => {
+    const aliases = name.split('-').filter(Boolean);
+    const searchTerms = buildCustomEntityIconSearchTerms(icon, aliases, []);
+    return {
+      icon,
+      glyph,
+      name,
+      kind: 'mdi',
+      featured: CUSTOM_ENTITY_ICON_FEATURED_MDI_SET.has(name),
+      aliases,
+      codepointTerms: [],
+      searchTerms,
+      searchText: [icon, name, ...aliases, ...searchTerms].join(' ').toLowerCase(),
+    };
+  });
 
-  if (rgiEmojiData?.characters && typeof rgiEmojiData.characters.toArray === 'function') {
-    rgiEmojiData.characters.toArray().forEach((codepoint) => {
-      if (!Number.isInteger(codepoint)) return;
-      const normalized = normalizeCustomEntityIcon(String.fromCodePoint(codepoint));
-      if (normalized) iconSet.add(normalized);
-    });
-  }
-
-  return Array.from(iconSet)
-    .map((icon) => {
-      const stripped = stripEmojiVariationSelectors(icon);
-      const aliases = getCustomEntityIconSearchAliases(icon);
-      const codepointTerms = getIconCodepointTerms(icon);
-      const searchTerms = buildCustomEntityIconSearchTerms(icon, aliases, codepointTerms);
-      const searchText = [icon, stripped, ...aliases, ...codepointTerms, ...searchTerms]
-        .join(' ')
-        .toLowerCase();
-
-      return {
-        icon,
-        aliases,
-        codepointTerms,
-        searchTerms,
-        searchText,
-      };
-    })
-    .sort((a, b) => a.icon.localeCompare(b.icon));
+  return [...mdiChoices, ...emojiChoices].sort((a, b) => {
+    if (a.featured !== b.featured) return a.featured ? -1 : 1;
+    return (a.name || a.icon).localeCompare(b.name || b.icon);
+  });
 }
 
 async function ensureCustomEntityIconChoicesLoaded() {
@@ -786,13 +850,7 @@ async function ensureCustomEntityIconChoicesLoaded() {
   }
 
   customEntityIconChoicesPromise = (async () => {
-    if (!rgiEmojiDataCache) {
-      const rgiEmojiDataModule =
-        await import('regenerate-unicode-properties/Property_of_Strings/RGI_Emoji.js');
-      rgiEmojiDataCache = rgiEmojiDataModule?.default || rgiEmojiDataModule;
-    }
-
-    customEntityIconChoices = buildCustomEntityIconChoices(rgiEmojiDataCache);
+    customEntityIconChoices = buildCustomEntityIconChoices();
     return customEntityIconChoices;
   })();
 
@@ -810,7 +868,7 @@ function getFilteredCustomEntityIconChoices(filterValue = '') {
   const rawFilter = String(filterValue || '')
     .trim()
     .toLowerCase();
-  if (!rawFilter) return choices;
+  if (!rawFilter) return choices.filter((choice) => choice.featured);
 
   const alternativeGroups = buildEmojiSearchAlternativeGroups(rawFilter);
   if (!alternativeGroups.length) return choices;
@@ -2222,6 +2280,9 @@ function updateCustomEntityIconSummary() {
 }
 
 function getCustomEntityIconChoiceLabel(choice) {
+  if (choice.kind === 'mdi' && choice.name) {
+    return choice.name.replace(/-/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
+  }
   if (choice.aliases.length) {
     const visibleAliases = choice.aliases.slice(0, 4).join(', ');
     return choice.aliases.length > 4 ? `${visibleAliases}, ...` : visibleAliases;
@@ -2258,14 +2319,15 @@ function renderCustomEntityIconPickerChoices(pickerEl, entityId, filterValue = '
   }
 
   const filteredChoices = getFilteredCustomEntityIconChoices(filterValue);
+  const visibleChoices = filteredChoices.slice(0, CUSTOM_ENTITY_ICON_PICKER_RESULT_LIMIT);
   pickerEl.innerHTML = '';
 
   const summary = document.createElement('div');
   summary.className = 'custom-entity-icon-picker-meta';
   if (filterValue) {
-    summary.textContent = `Showing ${filteredChoices.length} of ${choices.length} icons for "${filterValue}".`;
+    summary.textContent = `Showing ${visibleChoices.length} of ${filteredChoices.length} matches for "${filterValue}" (${choices.length} icons available).`;
   } else {
-    summary.textContent = `Showing all ${choices.length} icons.`;
+    summary.textContent = `Showing ${visibleChoices.length} common icons. Search ${choices.length} bundled icons by name.`;
   }
   pickerEl.appendChild(summary);
 
@@ -2282,16 +2344,16 @@ function renderCustomEntityIconPickerChoices(pickerEl, entityId, filterValue = '
   grid.setAttribute('role', 'listbox');
   grid.setAttribute('aria-label', `Choose icon for ${entityId}`);
 
-  filteredChoices.forEach((choice) => {
+  visibleChoices.forEach((choice) => {
     const choiceBtn = document.createElement('button');
     choiceBtn.type = 'button';
     choiceBtn.className = 'custom-entity-icon-choice';
-    choiceBtn.textContent = choice.icon;
+    choiceBtn.textContent = choice.glyph;
     const choiceLabel = getCustomEntityIconChoiceLabel(choice);
     choiceBtn.title = choiceLabel;
     choiceBtn.dataset.customIconChoice = choice.icon;
     choiceBtn.dataset.customIconChoiceEntity = entityId;
-    choiceBtn.setAttribute('aria-label', `${choiceLabel} (${choice.icon})`);
+    choiceBtn.setAttribute('aria-label', choiceLabel);
     grid.appendChild(choiceBtn);
   });
 
@@ -2323,7 +2385,7 @@ function renderCustomEntityIconsList() {
     const pendingIcon = getPendingCustomIcon(entityId);
     const pickerQuery = getCustomEntityIconPickerQuery(entityId);
     const fallbackIcon = utils.getEntityIcon(entity, { ignoreCustomIcon: true });
-    const previewIcon = pendingIcon || fallbackIcon;
+    const previewIcon = utils.resolveEntityIconGlyph(pendingIcon) || fallbackIcon;
     const hasCustomIcon = !!pendingIcon;
     const isPickerOpen = activeCustomEntityIconPickerEntityId === entityId;
     const showAppliedIndicator =
@@ -2381,7 +2443,7 @@ function renderCustomEntityIconsList() {
     const input = document.createElement('input');
     input.type = 'text';
     input.className = 'custom-entity-icon-input';
-    input.placeholder = 'Search icons or paste icon';
+    input.placeholder = 'Search TV, backup, screen...';
     input.maxLength = 64;
     input.value = pickerQuery || pendingIcon || '';
     input.autocomplete = 'off';
@@ -3940,11 +4002,8 @@ async function openSettings(uiHooks) {
 
     // Initialize "Start at login" checkbox
     const startWithWindows = document.getElementById('start-with-windows');
-    const startInTrayAtLogin = document.getElementById('start-in-tray-at-login');
-    const startupTrayGroup = document.getElementById('start-in-tray-at-login-group');
-    const supportsStartupTray = window.electronAPI.platform === 'win32';
-    if (startupTrayGroup) startupTrayGroup.hidden = !supportsStartupTray;
-    if (startInTrayAtLogin) startInTrayAtLogin.checked = state.CONFIG.startInTrayAtLogin === true;
+    const startMinimized = document.getElementById('start-minimized');
+    if (startMinimized) startMinimized.checked = state.CONFIG.startMinimized === true;
     if (startWithWindows) {
       try {
         const loginSettings = await window.electronAPI.getLoginItemSettings();
@@ -3955,13 +4014,6 @@ async function openSettings(uiHooks) {
         startWithWindows.checked = false;
         startWithWindows.disabled = true;
       }
-      const syncStartupTrayEnabled = () => {
-        if (startInTrayAtLogin)
-          startInTrayAtLogin.disabled =
-            !supportsStartupTray || startWithWindows.disabled || !startWithWindows.checked;
-      };
-      startWithWindows.onchange = syncStartupTrayEnabled;
-      syncStartupTrayEnabled();
     }
 
     const displaySettings = document.getElementById('window-display-settings');
@@ -4569,10 +4621,8 @@ async function saveSettings() {
       nextConfig.windowDisplayId = displaySelect.value || null;
     }
     if (fillMonitor && !fillMonitor.disabled) nextConfig.fillMonitor = fillMonitor.checked;
-    const startInTrayAtLogin = document.getElementById('start-in-tray-at-login');
-    if (startInTrayAtLogin && window.electronAPI.platform === 'win32') {
-      nextConfig.startInTrayAtLogin = startInTrayAtLogin.checked;
-    }
+    const startMinimized = document.getElementById('start-minimized');
+    if (startMinimized) nextConfig.startMinimized = startMinimized.checked;
     if (closeButtonAction) {
       nextConfig.closeButtonAction = closeButtonAction.value === 'quit' ? 'quit' : 'minimize';
     }

@@ -85,6 +85,7 @@ describe('Utils Module', () => {
       mdiStyles.textContent = `
         .mdi-sofa::before { content: "\\F04B9"; }
         .mdi-power-socket::before { content: "\\F0427"; }
+        .mdi-television::before { content: "\\F0502"; }
       `;
       document.head.appendChild(mdiStyles);
     });
@@ -98,6 +99,29 @@ describe('Utils Module', () => {
       };
       const entity = { entity_id: 'light.test', state: 'on', attributes: {} };
       expect(utils.getEntityIcon(entity)).toBe('🛋️');
+    });
+
+    test('should resolve a bundled MDI custom icon', () => {
+      state.CONFIG = {
+        ...sampleConfig,
+        customEntityIcons: {
+          'media_player.test': 'mdi:television',
+        },
+      };
+      const entity = { entity_id: 'media_player.test', state: 'off', attributes: {} };
+      expect(utils.getEntityIcon(entity)).toBe(String.fromCodePoint(0xf0502));
+    });
+
+    test('should expose bundled MDI icons as a searchable catalog', () => {
+      expect(utils.getHomeAssistantMdiIconCatalog()).toEqual(
+        expect.arrayContaining([
+          {
+            name: 'television',
+            icon: 'mdi:television',
+            glyph: String.fromCodePoint(0xf0502),
+          },
+        ])
+      );
     });
 
     test('should adopt an icon supplied by Home Assistant', () => {

@@ -1,22 +1,32 @@
-const rgiEmojiData = require('regenerate-unicode-properties/Property_of_Strings/RGI_Emoji.js');
+const fs = require('fs');
+const path = require('path');
 
-describe('declared RGI emoji catalog', () => {
-  test('preserves the complete Unicode 17 catalog without duplicates', () => {
-    const catalog = [
-      ...rgiEmojiData.strings,
-      ...rgiEmojiData.characters.toArray().map((codepoint) => String.fromCodePoint(codepoint)),
-    ];
+describe('bundled custom icon catalog', () => {
+  const mdiCssPath = path.resolve(
+    __dirname,
+    '../../node_modules/@mdi/font/css/materialdesignicons.css'
+  );
 
-    expect(rgiEmojiData.strings).toHaveLength(2760);
-    expect(rgiEmojiData.characters.toArray()).toHaveLength(1193);
-    expect(catalog).toHaveLength(3953);
-    expect(new Set(catalog).size).toBe(3953);
+  test('contains the main device and backup icon families', () => {
+    const css = fs.readFileSync(mdiCssPath, 'utf8');
+
+    [
+      'television',
+      'monitor',
+      'desktop-tower-monitor',
+      'backup-restore',
+      'nas',
+      'harddisk',
+      'database',
+    ].forEach((iconName) => {
+      expect(css).toContain(`.mdi-${iconName}::before`);
+    });
   });
 
-  test.each(['1️⃣', '🇨🇦', '🏳️‍🌈', '👨‍👩‍👧‍👦', '👩🏽‍💻', '🫷🏽'])(
-    'includes representative RGI sequence %s',
-    (emoji) => {
-      expect(rgiEmojiData.strings).toContain(emoji);
-    }
-  );
+  test('provides a broad local catalog without relying on system emoji fonts', () => {
+    const css = fs.readFileSync(mdiCssPath, 'utf8');
+    const iconSelectors = css.match(/\.mdi-[a-z0-9-]+::before/g) || [];
+
+    expect(new Set(iconSelectors).size).toBeGreaterThan(7000);
+  });
 });

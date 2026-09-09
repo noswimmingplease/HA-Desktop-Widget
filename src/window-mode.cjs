@@ -9,6 +9,21 @@ function shouldStartFullScreen(argv = []) {
   return args.includes('--fullscreen');
 }
 
+function shouldStartMinimized({ argv = [], enabled = false } = {}) {
+  const args = Array.isArray(argv) ? argv : [];
+  return enabled === true && !args.includes('--smoke-test') && !args.includes('--fullscreen');
+}
+
+function migrateStartMinimizedSetting(target) {
+  if (!target || typeof target !== 'object') return false;
+  const enabled = Object.prototype.hasOwnProperty.call(target, 'startMinimized')
+    ? target.startMinimized === true
+    : target.startInTrayAtLogin === true;
+  target.startMinimized = enabled;
+  delete target.startInTrayAtLogin;
+  return enabled;
+}
+
 function normalizeCloseButtonAction(value) {
   return value === 'quit' ? 'quit' : 'minimize';
 }
@@ -237,7 +252,9 @@ module.exports = {
   createFullScreenController,
   isFullScreenExitShortcut,
   isFullScreenShortcut,
+  migrateStartMinimizedSetting,
   normalizeCloseButtonAction,
+  shouldStartMinimized,
   shouldStartFullScreen,
   toggleWindowMaximized,
 };

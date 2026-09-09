@@ -34,7 +34,7 @@ function collectHomeAssistantMdiGlyphsFromRules(rules) {
   if (!rules) return;
 
   for (const rule of rules) {
-    if (rule.cssRules) {
+    if (rule.cssRules?.length) {
       collectHomeAssistantMdiGlyphsFromRules(rule.cssRules);
       continue;
     }
@@ -44,7 +44,7 @@ function collectHomeAssistantMdiGlyphsFromRules(rules) {
     if (!glyph) continue;
 
     rule.selectorText.split(',').forEach((selector) => {
-      const match = /^\.mdi-([a-z0-9]+(?:-[a-z0-9]+)*)(?:::?before)$/.exec(selector.trim());
+      const match = /^\.mdi-([a-z0-9]+(?:-[a-z0-9]+)*):{1,2}before$/.exec(selector.trim());
       if (match) homeAssistantMdiGlyphs.set(match[1], glyph);
     });
   }
@@ -66,6 +66,24 @@ function getHomeAssistantMdiGlyph(icon) {
   return homeAssistantMdiGlyphs.get(iconName) || null;
 }
 
+function getHomeAssistantMdiIconCatalog() {
+  if (typeof document === 'undefined') return [];
+
+  for (const stylesheet of Array.from(document.styleSheets || [])) {
+    try {
+      collectHomeAssistantMdiGlyphsFromRules(stylesheet.cssRules);
+    } catch {
+      // A stylesheet outside the app origin may deny CSSOM access. The bundled MDI sheet does not.
+    }
+  }
+
+  return Array.from(homeAssistantMdiGlyphs, ([name, glyph]) => ({
+    name,
+    icon: `mdi:${name}`,
+    glyph,
+  })).sort((left, right) => left.name.localeCompare(right.name));
+}
+
 function countGraphemes(value) {
   if (!value || typeof value !== 'string') return 0;
   if (graphemeSegmenter) {
@@ -84,6 +102,10 @@ function normalizeEntityIconGlyph(icon) {
   const trimmed = icon.trim();
   if (!trimmed) return null;
   return countGraphemes(trimmed) === 1 ? trimmed : null;
+}
+
+function resolveEntityIconGlyph(icon) {
+  return getHomeAssistantMdiGlyph(icon) || normalizeEntityIconGlyph(icon);
 }
 
 function getEntityDisplayName(entity) {
@@ -118,7 +140,7 @@ function getEntityIcon(entity, options = {}) {
     if (!entity) return '❓';
     const ignoreCustomIcon = !!options.ignoreCustomIcon;
     if (!ignoreCustomIcon) {
-      const customIcon = normalizeEntityIconGlyph(
+      const customIcon = resolveEntityIconGlyph(
         state.CONFIG?.customEntityIcons?.[entity.entity_id]
       );
       if (customIcon) return customIcon;
@@ -887,6 +909,9 @@ export {
   getEntityTypeDescription,
   getEntityIcon,
   normalizeHomeAssistantMdiIcon,
+  getHomeAssistantMdiGlyph,
+  getHomeAssistantMdiIconCatalog,
+  resolveEntityIconGlyph,
   decodeCssContent,
   formatDuration,
   getTimerEnd,

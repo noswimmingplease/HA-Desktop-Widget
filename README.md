@@ -31,7 +31,7 @@ You can find both setup links under **Settings → General → System informatio
 
 Choose **Settings → Personalization → Dashboard layout → Device panels** to show all Quick Access pages as coloured panels. **Tabbed pages** retains the original layout; neither option changes your saved entities or pages.
 
-On Windows, **Settings → General → Start in notification area at login** keeps the widget hidden when Windows starts it. Opening the app yourself or using its notification-area icon shows it normally. Startup and tray restores fit the window inside a connected monitor's working area, keeping its size whenever it fits.
+**Settings → General → Start minimised** keeps the window in the notification area whenever the app starts. Open it from the notification icon or launch the app again. Startup and tray restores fit the window inside a connected monitor's working area, keeping its size whenever it fits.
 
 Under **Settings → General → Window & Behavior**, choose **Display on monitor** and enable **Fill monitor** to fill that screen without covering the taskbar. Turning it off restores your previous window size. A disconnected preferred monitor falls back to the primary monitor until it returns. These settings stay local to this computer; monitor selection is unavailable when a Wayland compositor controls window placement.
 
