@@ -11,21 +11,21 @@ directories:
   output: dist-fork
 
 extraMetadata:
-  githubRepository: Ci303/HA-Desktop-Widget
+  githubRepository: noswimmingplease/HA-Desktop-Widget
   name: ha-network-dashboard
   appId: com.github.ci303.hanetworkdashboard
   desktopName: com.github.ci303.hanetworkdashboard.desktop
   repository:
     type: git
-    url: https://github.com/Ci303/HA-Desktop-Widget.git
-  homepage: https://github.com/Ci303/HA-Desktop-Widget
+    url: https://github.com/noswimmingplease/HA-Desktop-Widget.git
+  homepage: https://github.com/noswimmingplease/HA-Desktop-Widget
   bugs:
-    url: https://github.com/Ci303/HA-Desktop-Widget/issues
+    url: https://github.com/noswimmingplease/HA-Desktop-Widget/issues
 
 # Use an object: inherited arrays concatenate and would keep upstream first.
 publish:
   provider: github
-  owner: Ci303
+  owner: noswimmingplease
   repo: HA-Desktop-Widget
   releaseType: release
 

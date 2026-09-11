@@ -7,7 +7,7 @@
       "englishName": "Chinese (Simplified)",
       "version": "1.2.14",
       "minAppVersion": "3.4.1",
-      "downloadUrl": "https://raw.githubusercontent.com/Ci303/HA-Desktop-Widget/main/locale-packs/zh.json",
+      "downloadUrl": "https://raw.githubusercontent.com/noswimmingplease/HA-Desktop-Widget/main/locale-packs/zh.json",
       "sha256": "23de6545ec933a3b57f0c92b8365142caa6723e7fc749587fc6a38b2b8430adf",
       "notes": "Simplified Chinese language pack for HA Desktop Widget."
     },
@@ -17,7 +17,7 @@
       "englishName": "Hindi",
       "version": "1.2.14",
       "minAppVersion": "3.4.1",
-      "downloadUrl": "https://raw.githubusercontent.com/Ci303/HA-Desktop-Widget/main/locale-packs/hi.json",
+      "downloadUrl": "https://raw.githubusercontent.com/noswimmingplease/HA-Desktop-Widget/main/locale-packs/hi.json",
       "sha256": "dc8c8a54c53876dd1f3fe33de791b52b40d77a0859cea6f71d145ed91fad5d28",
       "notes": "Hindi language pack for HA Desktop Widget."
     },
@@ -27,7 +27,7 @@
       "englishName": "Spanish",
       "version": "1.2.14",
       "minAppVersion": "3.4.1",
-      "downloadUrl": "https://raw.githubusercontent.com/Ci303/HA-Desktop-Widget/main/locale-packs/es.json",
+      "downloadUrl": "https://raw.githubusercontent.com/noswimmingplease/HA-Desktop-Widget/main/locale-packs/es.json",
       "sha256": "5b7803c0295811c4bf12172e159f50dd754f13c6ed3422dbd31d82af91407d43",
       "notes": "Spanish language pack for HA Desktop Widget."
     },
@@ -37,7 +37,7 @@
       "englishName": "French",
       "version": "1.2.14",
       "minAppVersion": "3.4.1",
-      "downloadUrl": "https://raw.githubusercontent.com/Ci303/HA-Desktop-Widget/main/locale-packs/fr.json",
+      "downloadUrl": "https://raw.githubusercontent.com/noswimmingplease/HA-Desktop-Widget/main/locale-packs/fr.json",
       "sha256": "a74681998cd6fa4fcbf5a38a490e1f799921349a0b02a99df0d97f6f99fcdf94",
       "notes": "French language pack for HA Desktop Widget."
     },
@@ -47,7 +47,7 @@
       "englishName": "Arabic",
       "version": "1.2.14",
       "minAppVersion": "3.4.1",
-      "downloadUrl": "https://raw.githubusercontent.com/Ci303/HA-Desktop-Widget/main/locale-packs/ar.json",
+      "downloadUrl": "https://raw.githubusercontent.com/noswimmingplease/HA-Desktop-Widget/main/locale-packs/ar.json",
       "sha256": "9d137c77cfc63851848e84d9da9c694c546c24b212c49c0ec5bf143b4b96b058",
       "notes": "Arabic language pack for HA Desktop Widget."
     }

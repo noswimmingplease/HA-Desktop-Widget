@@ -1,15 +1,15 @@
 # HA Network Dashboard
 
-This is **Ci303's HA Network Dashboard fork** of Robertg761's HA Desktop Widget. It adds a responsive device-panel dashboard, section colours and a choice of close-button behaviour. Public fork builds install separately from the original application; the original project credits and history are retained.
+This is **noswimmingplease's HA Network Dashboard fork** of Robertg761's HA Desktop Widget. It adds a responsive device-panel dashboard, section colours and a choice of close-button behaviour. Public fork builds install separately from the original application; the original project credits and history are retained.
 
-Fork development is at [Ci303/HA-Desktop-Widget](https://github.com/Ci303/HA-Desktop-Widget). No fork release has been published yet; use the [fork build instructions](CONTRIBUTING.md#fork-builds) to build locally. Screenshots below are from the original application unless noted otherwise. The [original project](https://github.com/Robertg761/HA-Desktop-Widget) remains available separately.
+Fork development is at [noswimmingplease/HA-Desktop-Widget](https://github.com/noswimmingplease/HA-Desktop-Widget). No fork release has been published yet; use the [fork build instructions](CONTRIBUTING.md#fork-builds) to build locally. Screenshots below are from the original application unless noted otherwise. The [original project](https://github.com/Robertg761/HA-Desktop-Widget) remains available separately.
 
 A semi-transparent desktop widget for Home Assistant that provides quick access to your smart home devices from your desktop.
 
-[![CI](https://github.com/Ci303/HA-Desktop-Widget/actions/workflows/ci.yml/badge.svg)](https://github.com/Ci303/HA-Desktop-Widget/actions/workflows/ci.yml)
+[![CI](https://github.com/noswimmingplease/HA-Desktop-Widget/actions/workflows/ci.yml/badge.svg)](https://github.com/noswimmingplease/HA-Desktop-Widget/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-- [Fork releases](https://github.com/Ci303/HA-Desktop-Widget/releases) (none published yet)
+- [Fork releases](https://github.com/noswimmingplease/HA-Desktop-Widget/releases) (none published yet)
 
 - [![GitHub Sponsors](https://img.shields.io/badge/Sponsor-me-orange)](https://github.com/sponsors/robertg761)
 
@@ -106,7 +106,7 @@ Planned for a future release:
 
 ### Download & Install
 
-1. Check the [fork Releases](https://github.com/Ci303/HA-Desktop-Widget/releases) page. Until a fork release is published, follow the [local build instructions](CONTRIBUTING.md#fork-builds).
+1. Check the [fork Releases](https://github.com/noswimmingplease/HA-Desktop-Widget/releases) page. Until a fork release is published, follow the [local build instructions](CONTRIBUTING.md#fork-builds).
 2. Windows: run the `.exe` installer or portable build. macOS: open the universal `.dmg` or `.zip` (older releases may be Apple Silicon-only). Linux: use the `.AppImage` or install the `.deb` package.
 3. Run the app and click the Settings button to configure your Home Assistant connection.
 
