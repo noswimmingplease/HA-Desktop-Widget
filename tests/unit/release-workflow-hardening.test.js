@@ -37,11 +37,11 @@ describe('release workflow hardening', () => {
     const config = await getConfig(path.resolve(__dirname, '../..'), 'electron-builder.fork.yml');
     expect(config.publish).toEqual({
       provider: 'github',
-      owner: 'Ci303',
+      owner: 'noswimmingplease',
       repo: 'HA-Desktop-Widget',
       releaseType: 'release',
     });
-    expect(config.extraMetadata.githubRepository).toBe('Ci303/HA-Desktop-Widget');
+    expect(config.extraMetadata.githubRepository).toBe('noswimmingplease/HA-Desktop-Widget');
     expect(config.appId).toBe(config.extraMetadata.appId);
   });
 

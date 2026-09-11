@@ -42,7 +42,7 @@ Dependency installation and packaging share `scripts/rebuild-native-dependencies
 
 ### Reporting Issues
 
-- **Bug Reports**: Use the [fork Issues](https://github.com/Ci303/HA-Desktop-Widget/issues) page
+- **Bug Reports**: Use the [fork Issues](https://github.com/noswimmingplease/HA-Desktop-Widget/issues) page
 - **Feature Requests**: Submit enhancement ideas with detailed descriptions
 - **Security Issues**: Use GitHub private vulnerability reporting when available; otherwise follow [SECURITY.md](SECURITY.md) to contact the maintainer privately
 
