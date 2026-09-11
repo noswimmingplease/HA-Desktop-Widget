@@ -2,7 +2,7 @@
   "locale": "hi",
   "displayName": "हिन्दी",
   "englishName": "Hindi",
-  "version": "1.2.14",
+  "version": "1.2.15",
   "minAppVersion": "3.4.1",
   "notes": "Hindi language pack for HA Desktop Widget.",
   "messages": {
@@ -10,6 +10,8 @@
     "Tabbed pages": "टैब वाले पृष्ठ",
     "Device panels": "डिवाइस पैनल",
     "Show each Quick Access page as a separate device panel, or switch between pages using tabs.": "हर त्वरित पहुँच पृष्ठ को अलग डिवाइस पैनल के रूप में दिखाएँ, या टैब से पृष्ठ बदलें।",
+    "Hide unavailable device panels": "अनुपलब्ध डिवाइस पैनल छिपाएँ",
+    "Hide a device panel when all of its Home Assistant entities are unavailable. It returns automatically when any entity becomes available.": "जब किसी डिवाइस पैनल की सभी Home Assistant एंटिटी अनुपलब्ध हों, तो उसे छिपाएँ। कोई भी एंटिटी उपलब्ध होते ही पैनल अपने आप वापस दिखाई देगा।",
     "Display on monitor": "इस मॉनिटर पर दिखाएँ",
     "Fill monitor": "मॉनिटर भरें",
     "Automatic (last position)": "स्वचालित (पिछली स्थिति)",

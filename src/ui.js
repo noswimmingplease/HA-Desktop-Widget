@@ -25,6 +25,7 @@ import {
   QUICK_ACCESS_PRESENTATION_ROOMS,
   buildQuickAccessLayout,
   calculateQuickAccessMasonryRowSpan,
+  filterUnavailableQuickAccessSections,
   getQuickAccessDeviceIdentity,
   getQuickAccessLayoutEntityIds,
   getQuickAccessPresentation,
@@ -7550,7 +7551,11 @@ function renderQuickControls() {
     }
 
     const config = ensureQuickAccessConfig();
-    const layout = getQuickAccessRenderLayout(config);
+    const layout = filterUnavailableQuickAccessSections(
+      getQuickAccessRenderLayout(config),
+      state.STATES,
+      config.ui?.hideUnavailableDevicePanels === true
+    );
     const showingRoomSections = layout.presentation === QUICK_ACCESS_PRESENTATION_ROOMS;
     renderQuickAccessTabs(config);
 
@@ -12515,6 +12520,7 @@ function removeEscapeKeyListener() {
 
 export {
   renderActiveTab,
+  renderQuickControls,
   updateEntityInUI,
   updateWeatherFromHA,
   updateWeatherEffects,

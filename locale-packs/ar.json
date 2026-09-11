@@ -2,7 +2,7 @@
   "locale": "ar",
   "displayName": "العربية",
   "englishName": "Arabic",
-  "version": "1.2.14",
+  "version": "1.2.15",
   "minAppVersion": "3.4.1",
   "notes": "Arabic language pack for HA Desktop Widget.",
   "messages": {
@@ -10,6 +10,8 @@
     "Tabbed pages": "صفحات بعلامات تبويب",
     "Device panels": "لوحات الأجهزة",
     "Show each Quick Access page as a separate device panel, or switch between pages using tabs.": "اعرض كل صفحة وصول سريع كلوحة جهاز منفصلة، أو انتقل بين الصفحات باستخدام علامات التبويب.",
+    "Hide unavailable device panels": "إخفاء لوحات الأجهزة غير المتاحة",
+    "Hide a device panel when all of its Home Assistant entities are unavailable. It returns automatically when any entity becomes available.": "إخفاء لوحة الجهاز عندما تكون جميع كيانات Home Assistant التابعة لها غير متاحة. تظهر اللوحة تلقائيًا عند توفر أي كيان.",
     "Display on monitor": "العرض على الشاشة",
     "Fill monitor": "ملء الشاشة مع إبقاء شريط المهام",
     "Automatic (last position)": "تلقائي (الموضع الأخير)",

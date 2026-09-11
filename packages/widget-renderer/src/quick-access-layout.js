@@ -67,6 +67,39 @@ function getQuickAccessPresentation(config) {
   return normalizeQuickAccessPresentation(config?.ui?.quickAccessPresentation);
 }
 
+function isQuickAccessEntityUnavailable(entity) {
+  const entityState = String(entity?.state || '')
+    .trim()
+    .toLowerCase();
+  return entityState === 'unavailable' || entityState === 'unknown';
+}
+
+/**
+ * Hides a device section only when every configured entity still exists in the
+ * Home Assistant state map and every one of those entities is unavailable.
+ * Missing entities remain visible so the existing repair UI is not concealed.
+ */
+function filterUnavailableQuickAccessSections(layout, states, enabled = false) {
+  if (
+    !enabled ||
+    layout?.presentation !== QUICK_ACCESS_PRESENTATION_ROOMS ||
+    !states ||
+    Object.keys(states).length === 0
+  ) {
+    return layout;
+  }
+
+  return {
+    ...layout,
+    sections: (layout.sections || []).filter((section) => {
+      if (!Array.isArray(section?.entityIds) || section.entityIds.length === 0) return true;
+      const entities = section.entityIds.map((entityId) => states[entityId]);
+      if (entities.some((entity) => !entity)) return true;
+      return entities.some((entity) => !isQuickAccessEntityUnavailable(entity));
+    }),
+  };
+}
+
 /**
  * Builds the renderer-facing Quick Access layout without mutating config.
  *
@@ -133,8 +166,10 @@ export {
   QUICK_ACCESS_PRESENTATION_TABS,
   buildQuickAccessLayout,
   calculateQuickAccessMasonryRowSpan,
+  filterUnavailableQuickAccessSections,
   getQuickAccessDeviceIdentity,
   getQuickAccessLayoutEntityIds,
   getQuickAccessPresentation,
+  isQuickAccessEntityUnavailable,
   normalizeQuickAccessPresentation,
 };

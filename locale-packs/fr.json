@@ -2,7 +2,7 @@
   "locale": "fr",
   "displayName": "Français",
   "englishName": "French",
-  "version": "1.2.14",
+  "version": "1.2.15",
   "minAppVersion": "3.4.1",
   "notes": "French language pack for HA Desktop Widget.",
   "messages": {
@@ -10,6 +10,8 @@
     "Tabbed pages": "Pages à onglets",
     "Device panels": "Panneaux des appareils",
     "Show each Quick Access page as a separate device panel, or switch between pages using tabs.": "Affichez chaque page d’accès rapide dans un panneau distinct, ou passez d’une page à l’autre à l’aide des onglets.",
+    "Hide unavailable device panels": "Masquer les panneaux d’appareils indisponibles",
+    "Hide a device panel when all of its Home Assistant entities are unavailable. It returns automatically when any entity becomes available.": "Masque un panneau d’appareil lorsque toutes ses entités Home Assistant sont indisponibles. Il réapparaît automatiquement dès qu’une entité redevient disponible.",
     "Display on monitor": "Afficher sur le moniteur",
     "Fill monitor": "Remplir le moniteur",
     "Automatic (last position)": "Automatique (dernière position)",

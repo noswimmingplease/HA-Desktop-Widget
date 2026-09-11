@@ -15,6 +15,7 @@ import { applyCloseButtonIcons, setIconContent } from './src/icons.js';
 import { BASE_RECONNECT_DELAY_MS, MAX_RECONNECT_DELAY_MS } from './src/constants.js';
 import { WeatherEffectsManager } from './src/weather-effects.js';
 import { normalizeQuickAccessConfig } from './src/quick-access-tabs.js';
+import { isQuickAccessEntityUnavailable } from './src/quick-access-layout.js';
 import { normalizeComparisonGraphsConfig } from './src/comparison-graphs.js';
 import { DesktopCompanionClient } from './src/desktop-companion-client.js';
 import {
@@ -311,6 +312,11 @@ function flushPendingStateChangedEntities() {
   const changes = Array.from(pendingStateChangedEntities.values());
   pendingStateChangedEntities.clear();
   const hasDeletion = changes.some(({ entity }) => !entity);
+  const refreshUnavailableDevicePanels =
+    !IS_SPECIAL_PIN_MODE &&
+    state.CONFIG?.ui?.quickAccessPresentation === 'rooms' &&
+    state.CONFIG?.ui?.hideUnavailableDevicePanels === true &&
+    changes.some(({ availabilityChanged }) => availabilityChanged);
   const publishForDesktopPins = hasDesktopPinsConfigured();
 
   if (hasDeletion && publishForDesktopPins) {
@@ -336,6 +342,10 @@ function flushPendingStateChangedEntities() {
     alerts.checkEntityAlerts(entity.entity_id, entity.state);
   });
 
+  if (refreshUnavailableDevicePanels && !hasDeletion) {
+    ui.renderQuickControls();
+  }
+
   if (hasDeletion) {
     if (IS_SPECIAL_PIN_MODE) {
       renderCurrentMode();
@@ -358,9 +368,16 @@ function scheduleStateChangedFlush() {
 
 function queueStateChangedEntity(entity) {
   if (!entity?.entity_id) return;
+  const previousEntity = state.STATES?.[entity.entity_id];
+  const previousChange = pendingStateChangedEntities.get(entity.entity_id);
+  const availabilityChanged =
+    previousChange?.availabilityChanged === true ||
+    (!!previousEntity &&
+      isQuickAccessEntityUnavailable(previousEntity) !== isQuickAccessEntityUnavailable(entity));
   state.setEntityState(entity);
   pendingStateChangedEntities.set(entity.entity_id, {
     entity,
+    availabilityChanged,
   });
   scheduleStateChangedFlush();
 }

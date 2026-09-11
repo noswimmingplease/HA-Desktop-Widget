@@ -3,6 +3,8 @@
   "Tabbed pages": "Tabbed pages",
   "Device panels": "Device panels",
   "Show each Quick Access page as a separate device panel, or switch between pages using tabs.": "Show each Quick Access page as a separate device panel, or switch between pages using tabs.",
+  "Hide unavailable device panels": "Hide unavailable device panels",
+  "Hide a device panel when all of its Home Assistant entities are unavailable. It returns automatically when any entity becomes available.": "Hide a device panel when all of its Home Assistant entities are unavailable. It returns automatically when any entity becomes available.",
   "Display on monitor": "Display on monitor",
   "Fill monitor": "Fill monitor",
   "Automatic (last position)": "Automatic (last position)",

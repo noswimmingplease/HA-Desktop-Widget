@@ -2,7 +2,7 @@
   "locale": "es",
   "displayName": "Español",
   "englishName": "Spanish",
-  "version": "1.2.14",
+  "version": "1.2.15",
   "minAppVersion": "3.4.1",
   "notes": "Spanish language pack for HA Desktop Widget.",
   "messages": {
@@ -10,6 +10,8 @@
     "Tabbed pages": "Páginas con pestañas",
     "Device panels": "Paneles de dispositivos",
     "Show each Quick Access page as a separate device panel, or switch between pages using tabs.": "Muestra cada página de acceso rápido como un panel independiente, o cambia de página mediante pestañas.",
+    "Hide unavailable device panels": "Ocultar paneles de dispositivos no disponibles",
+    "Hide a device panel when all of its Home Assistant entities are unavailable. It returns automatically when any entity becomes available.": "Oculta un panel de dispositivo cuando todas sus entidades de Home Assistant no están disponibles. Vuelve a aparecer automáticamente cuando alguna entidad está disponible.",
     "Display on monitor": "Mostrar en el monitor",
     "Fill monitor": "Llenar el monitor",
     "Automatic (last position)": "Automático (última posición)",

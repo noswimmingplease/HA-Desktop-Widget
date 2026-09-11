@@ -3996,6 +3996,10 @@ async function openSettings(uiHooks) {
       quickAccessPresentation.value =
         state.CONFIG.ui?.quickAccessPresentation === 'rooms' ? 'rooms' : 'tabs';
     }
+    const hideUnavailableDevicePanels = document.getElementById('hide-unavailable-device-panels');
+    if (hideUnavailableDevicePanels) {
+      hideUnavailableDevicePanels.checked = state.CONFIG.ui?.hideUnavailableDevicePanels === true;
+    }
     if (frostedGlass) frostedGlass.checked = !!state.CONFIG.frostedGlass;
     if (allowPrereleaseUpdates) {
       allowPrereleaseUpdates.checked = state.CONFIG.updates?.allowPrerelease === true;
@@ -4642,6 +4646,10 @@ async function saveSettings() {
     if (quickAccessPresentation) {
       nextConfig.ui.quickAccessPresentation =
         quickAccessPresentation.value === 'rooms' ? 'rooms' : 'tabs';
+    }
+    const hideUnavailableDevicePanels = document.getElementById('hide-unavailable-device-panels');
+    if (hideUnavailableDevicePanels) {
+      nextConfig.ui.hideUnavailableDevicePanels = hideUnavailableDevicePanels.checked;
     }
     const frostedGlassEnabled = !!nextConfig.frostedGlass;
     nextConfig.ui.weatherEffectsEnabled = weatherEffectsEnabled

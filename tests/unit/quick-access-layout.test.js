@@ -3,6 +3,7 @@ const {
   QUICK_ACCESS_PRESENTATION_TABS,
   buildQuickAccessLayout,
   calculateQuickAccessMasonryRowSpan,
+  filterUnavailableQuickAccessSections,
   getQuickAccessDeviceIdentity,
   getQuickAccessLayoutEntityIds,
   getQuickAccessPresentation,
@@ -101,6 +102,56 @@ describe('quick-access-layout helpers', () => {
 
     expect(layout.sections[0].entityIds).toEqual(entityIds);
     expect(getQuickAccessLayoutEntityIds(layout)).toHaveLength(24);
+  });
+
+  test('optionally hides device panels whose known entities are all unavailable', () => {
+    const layout = buildQuickAccessLayout({
+      ui: { quickAccessPresentation: QUICK_ACCESS_PRESENTATION_ROOMS },
+      customTabs: [
+        { id: 'gamma', name: 'GAMMA', entityIds: ['sensor.gamma_cpu'] },
+        {
+          id: 'upsilon',
+          name: 'Pi2 - UPSILON',
+          entityIds: ['sensor.upsilon_cpu', 'sensor.upsilon_memory'],
+        },
+      ],
+      activeTabId: 'gamma',
+    });
+    const states = {
+      'sensor.gamma_cpu': { entity_id: 'sensor.gamma_cpu', state: '12' },
+      'sensor.upsilon_cpu': { entity_id: 'sensor.upsilon_cpu', state: 'unavailable' },
+      'sensor.upsilon_memory': { entity_id: 'sensor.upsilon_memory', state: 'unknown' },
+    };
+
+    expect(filterUnavailableQuickAccessSections(layout, states, true).sections).toEqual([
+      layout.sections[0],
+    ]);
+    expect(filterUnavailableQuickAccessSections(layout, states, false)).toBe(layout);
+  });
+
+  test('keeps panels visible before the first snapshot and when an entity is missing', () => {
+    const layout = buildQuickAccessLayout({
+      ui: { quickAccessPresentation: QUICK_ACCESS_PRESENTATION_ROOMS },
+      customTabs: [
+        {
+          id: 'upsilon',
+          name: 'Pi2 - UPSILON',
+          entityIds: ['sensor.upsilon_cpu', 'sensor.upsilon_missing'],
+        },
+      ],
+      activeTabId: 'upsilon',
+    });
+
+    expect(filterUnavailableQuickAccessSections(layout, {}, true)).toBe(layout);
+    expect(
+      filterUnavailableQuickAccessSections(
+        layout,
+        {
+          'sensor.upsilon_cpu': { entity_id: 'sensor.upsilon_cpu', state: 'unavailable' },
+        },
+        true
+      )
+    ).toEqual(layout);
   });
 
   test('calculates stable masonry spans from rendered height and grid rhythm', () => {

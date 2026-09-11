@@ -5970,6 +5970,37 @@ describe('UI Rendering - Selective Business Logic Tests (ui.js)', () => {
       expect(container.querySelectorAll(':scope > .quick-access-room')).toHaveLength(2);
       expect(container.querySelectorAll('.control-item')).toHaveLength(14);
     });
+
+    it('hides and restores a device panel as its entities become unavailable and recover', () => {
+      setDashboard({
+        presentation: 'rooms',
+        tabs: [
+          { id: 'gamma', name: 'GAMMA', entityIds: ['sensor.gamma_cpu'] },
+          { id: 'upsilon', name: 'Pi2 - UPSILON', entityIds: ['sensor.upsilon_cpu'] },
+        ],
+        activeTabId: 'gamma',
+      });
+      state.setConfig({
+        ...state.CONFIG,
+        ui: { ...state.CONFIG.ui, hideUnavailableDevicePanels: true },
+      });
+      state.setEntityState({
+        ...state.STATES['sensor.upsilon_cpu'],
+        state: 'unavailable',
+      });
+
+      ui.renderQuickControls();
+      const container = document.getElementById('quick-controls');
+      expect(container.querySelector('[data-room-id="upsilon"]')).toBeNull();
+      expect(container.querySelector('[data-room-id="gamma"]')).not.toBeNull();
+
+      state.setEntityState({
+        ...state.STATES['sensor.upsilon_cpu'],
+        state: '7',
+      });
+      ui.renderQuickControls();
+      expect(container.querySelector('[data-room-id="upsilon"]')).not.toBeNull();
+    });
   });
 
   // ==============================================================================
